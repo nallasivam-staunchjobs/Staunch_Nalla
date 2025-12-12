@@ -1,0 +1,244 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+
+.scrollbar-desktop::-webkit-scrollbar {
+  @apply w-1 h-1;
+}
+
+.scrollbar-desktop::-webkit-scrollbar-track {
+  @apply backdrop-blur-md;
+}
+
+.scrollbar-desktop::-webkit-scrollbar-thumb {
+  @apply bg-black dark:bg-orange-600;
+}
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-gray-50 text-gray-900;
+  }
+}
+
+@layer utilities {
+  /* Responsive Text Utilities */
+  .text-responsive-xs {
+    @apply text-xs sm:text-sm md:text-base;
+  }
+
+  .text-responsive-sm {
+    @apply text-sm sm:text-base md:text-lg;
+  }
+
+  .text-responsive-base {
+    @apply text-sm sm:text-base md:text-lg lg:text-xl;
+  }
+
+  .text-responsive-lg {
+    @apply text-base sm:text-lg md:text-xl lg:text-2xl;
+  }
+
+  .text-responsive-xl {
+    @apply text-lg sm:text-xl md:text-2xl lg:text-3xl;
+  }
+
+  .text-responsive-2xl {
+    @apply text-xl sm:text-2xl md:text-3xl lg:text-4xl;
+  }
+
+  .text-responsive-3xl {
+    @apply text-2xl sm:text-3xl md:text-4xl lg:text-5xl;
+  }
+
+  /* Responsive Heading Utilities */
+  .heading-responsive-h1 {
+    @apply text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold;
+  }
+
+  .heading-responsive-h2 {
+    @apply text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold;
+  }
+
+  .heading-responsive-h3 {
+    @apply text-lg sm:text-xl md:text-2xl lg:text-3xl font-semibold;
+  }
+
+  .heading-responsive-h4 {
+    @apply text-base sm:text-lg md:text-xl lg:text-2xl font-semibold;
+  }
+
+  .heading-responsive-h5 {
+    @apply text-sm sm:text-base md:text-lg lg:text-xl font-medium;
+  }
+
+  .heading-responsive-h6 {
+    @apply text-xs sm:text-sm md:text-base lg:text-lg font-medium;
+  }
+
+  /* Responsive Paragraph & Body Text */
+  .body-responsive {
+    @apply text-sm sm:text-base md:text-lg leading-relaxed;
+  }
+
+  .caption-responsive {
+    @apply text-xs sm:text-sm md:text-base text-gray-600;
+  }
+
+  /* Responsive Line Heights */
+  .leading-responsive-tight {
+    @apply leading-tight sm:leading-snug md:leading-normal;
+  }
+
+  .leading-responsive-normal {
+    @apply leading-normal sm:leading-relaxed md:leading-loose;
+  }
+
+  /* Progress Components */
+  .progress-step {
+    @apply flex items-center justify-center w-10 h-10 rounded-full font-semibold text-sm transition-all;
+  }
+
+  .progress-step.active {
+    @apply bg-blue-600 text-white;
+  }
+
+  .progress-step.completed {
+    @apply bg-green-500 text-white;
+  }
+
+  .progress-step.inactive {
+    @apply bg-gray-200 text-gray-500;
+  }
+
+  .progress-line {
+    @apply w-px h-8 mx-auto transition-colors;
+  }
+
+  .progress-line.completed {
+    @apply bg-green-500;
+  }
+
+  .progress-line.inactive {
+    @apply bg-gray-200;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer components {
+  /* Button Components */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-blue {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500 shadow-sm hover:shadow-md transform hover:-translate-y-0.5;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-gray-500;
+  }
+
+  .btn-green {
+    @apply bg-green-600 text-white hover:bg-green-700 focus:ring-green-500;
+  }
+
+  .btn-red {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-outline {
+    @apply border-2 border-gray-300 text-gray-700 hover:border-blue-500 hover:text-blue-600 focus:ring-blue-500;
+  }
+
+  /* Form Components */
+  .form-input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200;
+  }
+
+  .form-select {
+    @apply block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors px-3 py-2;
+  }
+
+  .form-textarea {
+    @apply block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors resize-none px-3 py-2;
+  }
+
+  .form-radio {
+    @apply text-blue-600 focus:ring-blue-500 border-gray-300;
+  }
+
+  .form-input-error {
+    @apply border-red-500 focus:ring-red-500;
+  }
+
+  .input {
+    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all;
+  }
+
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200;
+  }
+
+  /* Status Components */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full;
+  }
+
+  .status-active {
+    @apply bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+
+  .status-inactive {
+    @apply bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+
+  .status-suspended {
+    @apply bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium;
+  }
+
+  /* Modal Components */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
+  }
+
+  .modal-content {
+    @apply bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto;
+  }
+
+  /* Card Components */
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200;
+  }
+
+  .gradient-header {
+    @apply bg-gradient-to-r from-blue-600 to-purple-600 text-white;
+  }
+}

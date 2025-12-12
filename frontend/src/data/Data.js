@@ -1,0 +1,321 @@
+import {
+  Gauge,
+  CalendarDays,
+  FolderCog,
+  UserCog,
+  MailOpen,
+  Network,
+  Files,
+  ReceiptIndianRupee,
+  CopyCheck,
+  Calendar,
+  ClipboardPlus,
+  Cog,
+} from 'lucide-react';
+
+export const menuItems = [
+  {
+    title: 'Dashboard',
+    path: '/home',
+    icon: Gauge,
+  },
+  {
+    title: 'Masters',
+    icon: FolderCog,
+    requiredRole: ['ceo', 'RM'], // <-- fixed: match backend case (RM uppercase, ceo lowercase)
+    subMenu: [
+      {
+        title: 'Source',
+        path: '/source',
+      },
+      {
+        title: 'Industry',
+        path: '/industry',
+      },
+      {
+        title: 'Remarks',
+        path: '/remarks',
+      },
+      {
+        title: 'Department',
+        path: '/department',
+      },
+      {
+        title: 'Designation',
+        path: '/designation',
+      },
+      {
+        title: 'Education',
+        path: '/education',
+      },
+      {
+        title: 'Experience',
+        path: '/experience',
+      },
+      {
+        title: 'Communication',
+        path: '/communication',
+      },
+      {
+        title: 'Position',
+        path: '/position',
+      },
+      {
+        title: 'Branch',
+        path: '/branch',
+      },
+      {
+        title: 'Workmode',
+        path: '/workmode',
+      },
+      {
+        title: 'Gender',
+        path: '/gender',
+      },
+      {
+        title: 'MaterialStatus',
+        path: '/materialstatus',
+      },
+      {
+        title: 'BloodGroup',
+        path: '/bloodgroup',
+      },
+      {
+        title:'Team',
+        path:'/team',
+      },
+    ],
+  },
+  {
+    title: 'Calendar',
+    icon: CalendarDays,
+    subMenu: [
+      {
+        title: 'Events',
+        path: '/events',
+      },
+      {
+        title: 'Day Plans',
+        path: 'day-plans',
+      },
+      
+    ],
+  },
+  {
+    title: 'Management',
+    icon: UserCog,
+    subMenu: [
+      {
+        title: 'User',
+        subMenuItems: [
+          {
+            title: 'Add User',
+            path: '/add-user',
+          },
+          {
+            title: 'View Users',
+            path: '/view-users',
+          },
+        ],
+      },
+      {
+        title: 'Vendor',
+        path: '/add-vendor',
+      },
+    ],
+  },
+  {
+    title: 'Source',
+    icon: Network,
+    subMenu: [
+      {
+        title: 'IV Fixed',
+        path: '',
+      },
+      {
+        title: 'Closed',
+        path: '',
+      },
+      {
+        title: 'Vendor',
+        path: '',
+      },
+      {
+        title: 'Employee',
+        path: '',
+      },
+    ],
+  },
+  {
+    title: 'Openings',
+    icon: MailOpen,
+    subMenu: [
+      {
+        title: 'Add New Openings',
+        path: '/add-openings',
+      },
+      {
+        title: 'Openings Details',
+        path: '/view-openings',
+      },
+    ],
+  },
+  {
+    title: 'Invests & Expenses',
+    icon: ReceiptIndianRupee,
+    subMenu: [
+      {
+        title: 'Add Investment',
+        path: '',
+      },
+      {
+        title: 'Investment Details',
+        path: '',
+      },
+      {
+        title: 'Add Expenses',
+        path: '',
+      },
+      {
+        title: 'Expenses Details',
+        path: '',
+      },
+      {
+        title: 'Add Salary',
+        path: '',
+      },
+      {
+        title: 'View Salary',
+        path: '',
+      },
+      {
+        title: 'Add Incentive|Bonus',
+        path: '',
+      },
+      {
+        title: 'Incentive|Bonus',
+        path: '',
+      },
+    ],
+  },
+  {
+    title: 'Documents',
+    icon: Files,
+    subMenu: [
+      {
+        title: 'Documents Upload',
+        path: '',
+      },
+      {
+        title: 'Documents Details',
+        path: '',
+      },
+    ],
+  },
+  {
+    title: 'Duplicate Check',
+    icon: CopyCheck,
+    path: '/duplicate-check',
+  },
+  {
+    title: 'Invoice',
+    icon: ReceiptIndianRupee,
+    requiredRole: ['ceo'], // Changed from 'CEO' to 'ceo' to match the actual role in the system
+    subMenu: [
+      {
+        title: 'ITBR View',
+        path: 'itbrview',
+      },
+      {
+        title: 'Invoice List View',
+        path: 'listview',
+      },
+    ],
+  },
+  {
+    title: 'DTR',
+    icon: Calendar,
+    subMenu: [
+      {
+        title: 'Interview Fixed',
+        path: '',
+      },
+      {
+        title: 'F-DTR',
+        path: '/f-dtr-report',
+      },
+      {
+        title: 'T-DTR',
+        path: '/t-dtr-report',
+      },
+      {
+        title: 'Data Bank',
+        path: '/databank',
+      },
+      {
+        title: 'Hourwise Update',
+        path: '',
+      },
+      {
+        title: 'IF/PS Report',
+        path: '/if/ps-report',
+      },
+      {
+        title:'Profile in',
+        path:'/profile-in',
+      },
+      {
+        title:'Profile out',
+        path:'/profile-out',
+      }
+    ],
+  },
+  {
+    title: 'Report',
+    icon: ClipboardPlus,
+    subMenu: [
+      {
+        title: 'Performance Report',
+        path: '',
+      },
+      {
+        title: 'PL Report',
+        path: '',
+      },
+      {
+        title: 'Executive PL Report',
+        path: '',
+      },
+      {
+        title: 'Mails Report',
+        path: '',
+      },
+      {
+        title: 'Bench Mark',
+        path: '',
+      },
+      {
+        title: 'Selection Report',
+        path: '',
+      },
+      {
+        title: 'BRM Report',
+        path: '',
+      },
+    ],
+  },
+  {
+    title: 'Settings',
+    icon: Cog,
+    subMenu: [
+      {
+        title: 'My Profile',
+        path: '/my-profile', // This should match your route path       
+      },
+      {
+        title: 'Logout',      
+        onClick: 'logout', // This custom prop signals a logout action
+      },
+    ],
+  },
+];
