@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Status History API for Raks</title>
+</head>
+<body>
+    <h1>Test Status History API for Candidate 196713 (raks)</h1>
+    <button onclick="testCreateStatus()">Test Create Status History</button>
+    <button onclick="testGetTimeline()">Test Get Timeline</button>
+    
+    <div id="results" style="margin-top: 20px; padding: 10px; background: #f5f5f5; white-space: pre-wrap;"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        
+        function log(message) {
+            const results = document.getElementById('results');
+            results.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+        }
+        
+        async function testCreateStatus() {
+            log('Testing status history creation for candidate 196713 (raks)...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/status-history/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Token ${localStorage.getItem('token')}`
+                    },
+                    body: JSON.stringify({
+                        candidate_id: 196713,
+                        client_job_id: 196713,
+                        vendor_id: null,
+                        client_name: "Matrimony Directory",
+                        remarks: "interested",
+                        change_date: "2025-11-14",
+                        created_by: "Emp/00100",
+                        extra_notes: "Test entry for raks candidate"
+                    })
+                });
+                
+                const data = await response.json();
+                log('Create Status Response: ' + JSON.stringify(data, null, 2));
+                
+            } catch (error) {
+                log('Create Status Error: ' + error.message);
+            }
+        }
+        
+        async function testGetTimeline() {
+            log('Testing timeline retrieval for candidate 196713...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/candidates/196713/timeline/`, {
+                    headers: {
+                        'Authorization': `Token ${localStorage.getItem('token')}`
+                    }
+                });
+                const data = await response.json();
+                log('Timeline Response: ' + JSON.stringify(data, null, 2));
+                
+            } catch (error) {
+                log('Timeline Error: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,894 @@
+// src/api/api.js
+import axios from "axios";
+import {
+  API_URL,
+  DEFAULT_HEADERS,
+  REQUEST_TIMEOUT,
+  AUTH_TYPE,
+} from "./config.js"; // 🔑 AUTH_TYPE comes from config.js
+
+// --- Helper to get CSRF cookie ---
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== "") {
+    const cookies = document.cookie.split(";");
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === name + "=") {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+
+// --- Axios instance ---
+const API = axios.create({
+  baseURL: API_URL,
+  headers: DEFAULT_HEADERS,
+  timeout: REQUEST_TIMEOUT,
+});
+
+// ✅ Interceptor: attach CSRF + Token/JWT
+API.interceptors.request.use(
+  (config) => {
+    // CSRF (needed if using SessionAuthentication)
+    const csrfToken = getCookie("csrftoken");
+    if (csrfToken) {
+      config.headers["X-CSRFToken"] = csrfToken;
+    }
+
+    // 🔑 Auth token from localStorage
+    const token = localStorage.getItem("token");
+    if (token) {
+      if (AUTH_TYPE === "token") {
+        config.headers["Authorization"] = `Token ${token}`;
+      } else if (AUTH_TYPE === "jwt") {
+        config.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+export default API;
+
+//
+// --- EMPLOYEES API ---
+//
+export const fetchEmployees = async () => {
+  try {
+    const response = await API.get("/empreg/employees/");
+    console.log(response.data);  
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching employees:", error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const createEmployee = async (employeeData) => {
+  try {
+    const response = await API.post("/empreg/employees/", employeeData);
+    return response.data;
+  } catch (error) {
+    console.error("Error creating employee:", error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const updateEmployee = async (id, formData) => {
+  try {
+    const response = await API.put(`/empreg/employees/${id}/`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error updating employee:", error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const deleteEmployee = async (id) => {
+  try {
+    const response = await API.delete(`/empreg/employees/${id}/`);
+    return response.data;
+  } catch (error) {
+    console.error("Error deleting employee:", error.response?.data || error.message);
+    throw error;
+  }
+};
+
+//
+// --- CANDIDATE FEEDBACK API ---
+//
+export const fetchCandidateFeedback = async (candidateId) => {
+  try {
+    const response = await API.get(`/candidate-feedback/?candidate_id=${candidateId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching candidate feedback:", error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const candidateFeedback = {
+  create: async (feedbackData) => {
+    try {
+      const response = await API.post("/candidate-feedback/", feedbackData);
+      return response.data;
+    } catch (error) {
+      console.error("Error creating candidate feedback:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Server-side paginated fetch for candidates by remark (DRF PageNumberPagination)
+
+  update: async (id, feedbackData) => {
+    try {
+      const response = await API.put(`/candidate-feedback/${id}/`, feedbackData);
+      return response.data;
+    } catch (error) {
+      console.error("Error updating candidate feedback:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  delete: async (id) => {
+    try {
+      const response = await API.delete(`/candidate-feedback/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error("Error deleting candidate feedback:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+};
+
+//
+// --- CLIENT JOBS API ---
+//
+export const clientJobs = {
+  create: async (clientJobData) => {
+    try {
+      const response = await API.post("/client-jobs/", clientJobData);
+      return response.data;
+    } catch (error) {
+      console.error("Error creating client job:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  getByCandidate: async (candidateId) => {
+    try {
+      const response = await API.get(`/client-jobs/?candidate_id=${candidateId}`, {
+        timeout: 15000, // Reduce timeout to 15 seconds for faster feedback
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching client jobs:", error.response?.data || error.message);
+      // Return empty array on timeout to prevent crashes
+      if (error.code === 'ECONNABORTED') {
+        console.warn('Client jobs request timed out, returning empty array');
+        return [];
+      }
+      throw error;
+    }
+  },
+
+  update: async (id, clientJobData) => {
+    try {
+      const response = await API.put(`/client-jobs/${id}/`, clientJobData, {
+        timeout: 30000, // Reduce timeout to 30 seconds
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Error updating client job:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  delete: async (id) => {
+    try {
+      const response = await API.delete(`/client-jobs/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error("Error deleting client job:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  addFeedback: async (id, feedbackData) => {
+    try {
+      const response = await API.post(`/client-jobs/${id}/add-feedback/`, feedbackData);
+      return response.data;
+    } catch (error) {
+      console.error("Error adding feedback:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  getFeedbackEntries: async (id) => {
+    try {
+      const response = await API.get(`/client-jobs/${id}/get-feedback-entries/`, {
+        timeout: 15000, // Add 15 second timeout to prevent hanging
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching feedback entries:", error.response?.data || error.message);
+      // Return empty feedback on timeout to prevent crashes
+      if (error.code === 'ECONNABORTED') {
+        console.warn('Feedback entries request timed out, returning empty feedback');
+        return { feedback_entries: [] };
+      }
+      throw error;
+    }
+  },
+  // Clone candidate for new client assignment
+  cloneForClient: async (cloneData) => {
+    try {
+      const response = await API.post("/clone-candidate/", cloneData, {
+        timeout: 30000, // 30 second timeout for cloning operation
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Error cloning candidate for client:", error.response?.data || error.message);
+      throw error;
+    }
+  }
+};
+
+
+//
+// --- EMPLOYEE API ---
+//
+export const employeeAPI = {
+  getEmployeeInfo: async (employeeCode) => {
+    try {
+      const response = await API.get(`/empreg/employee-info/?employeeCode=${employeeCode}`);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching employee info:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  fixUserMapping: async () => {
+    try {
+      const response = await API.post("/empreg/fix-user-mapping/");
+      return response.data;
+    } catch (error) {
+      console.error("Error fixing user mapping:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+};
+
+//
+// --- CANDIDATES API ---
+//
+export const candidates = {
+  createComplete: async (candidateData) => {
+    try {
+      // Check if candidateData contains a file (resume_file) - could be nested in candidate object
+      const hasFile = (candidateData.resume_file && candidateData.resume_file instanceof File) ||
+                     (candidateData.candidate?.resume_file && candidateData.candidate.resume_file instanceof File);
+      
+      if (hasFile) {
+        // Use FormData for file uploads
+        const formData = new FormData();
+        
+        // Extract and add resume file
+        const resumeFile = candidateData.resume_file || candidateData.candidate?.resume_file;
+        formData.append("resume_file", resumeFile);
+        
+        // Create a copy of candidateData without the file for proper serialization
+        const dataWithoutFile = JSON.parse(JSON.stringify(candidateData));
+        if (dataWithoutFile.resume_file) {
+          delete dataWithoutFile.resume_file;
+        }
+        if (dataWithoutFile.candidate?.resume_file) {
+          delete dataWithoutFile.candidate.resume_file;
+        }
+        
+        // Add nested objects as JSON strings to maintain structure expected by backend
+        Object.keys(dataWithoutFile).forEach((key) => {
+          if (dataWithoutFile[key] !== undefined && dataWithoutFile[key] !== null) {
+            if (typeof dataWithoutFile[key] === "object") {
+              formData.append(key, JSON.stringify(dataWithoutFile[key]));
+            } else {
+              formData.append(key, dataWithoutFile[key]);
+            }
+          }
+        });
+        
+        const response = await API.post("/candidates/create-complete/", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+        return response.data;
+      } else {
+        // Use regular JSON for data without files
+        const response = await API.post("/candidates/create-complete/", candidateData);
+        return response.data;
+      }
+    } catch (error) {
+      console.error("Error creating complete candidate:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  getAll: async () => {
+    try {
+      const response = await API.get("/candidates/");
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching candidates:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  getById: async (id) => {
+    try {
+      const response = await API.get(`/candidates/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching candidate:", error.response?.data || error.message);
+      // Return null for 404 errors to prevent crashes
+      if (error.response?.status === 404) {
+        console.warn(`Candidate with ID ${id} not found, returning null`);
+        return null;
+      }
+      throw error;
+    }
+  },
+
+  // Bulk fetch multiple candidates by IDs - handles missing IDs gracefully
+  bulkFetch: async (candidateIds, includeClientJobs = true) => {
+    try {
+      const response = await API.post('/candidates/bulk-fetch/', {
+        ids: candidateIds,
+        include_client_jobs: includeClientJobs,
+        include_feedback: true,
+        include_assignments: true
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Error bulk fetching candidates:", error.response?.data || error.message);
+      // Return empty result on error
+      return {
+        found: [],
+        missing: candidateIds,
+        count: 0,
+        message: 'Failed to fetch candidates'
+      };
+    }
+  },
+
+  // Diagnostic method to check for missing candidate IDs in call details
+  diagnoseMissingIds: async () => {
+    try {
+      const response = await API.get('/candidates/diagnose-missing-ids/');
+      return response.data;
+    } catch (error) {
+      console.error("Error diagnosing missing IDs:", error.response?.data || error.message);
+      return {
+        error: 'Failed to diagnose missing IDs',
+        details: error.message
+      };
+    }
+  },
+
+  update: async (id, candidateData) => {
+    try {
+      // Check if candidateData is FormData
+      const isFormData = candidateData instanceof FormData;
+      
+      // Set headers based on data type
+      const config = isFormData 
+        ? { 
+            headers: { 
+              'Content-Type': 'multipart/form-data',
+              // Preserve existing headers
+              ...(candidateData.headers || {})
+            }
+          }
+        : {};
+      
+      const response = await API.put(`/candidates/${id}/`, candidateData, config);
+      return response.data;
+    } catch (error) {
+      console.error("Error updating candidate:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  delete: async (id) => {
+    try {
+      const response = await API.delete(`/candidates/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error("Error deleting candidate:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  search: async (searchTerm) => {
+    try {
+      const response = await API.get(`/candidates/search/?q=${encodeURIComponent(searchTerm)}`);
+      return response.data;
+    } catch (error) {
+      console.error("Error searching candidates:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  fixExecutiveNames: async () => {
+    try {
+      const response = await API.get("/candidates/fix-executive-names/");
+      return response.data;
+    } catch (error) {
+      console.error("Error fixing executive names:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Get distinct remarks from ClientJob table
+  getRemarks: async () => {
+    try {
+      const response = await API.get("/candidates/remarks/");
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching remarks:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Get candidates with filtering for DataBank report
+  getMyCandidates: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      
+      // Add date filters
+      if (filters.from_date) {
+        params.append('from_date', filters.from_date);
+      }
+      if (filters.to_date) {
+        params.append('to_date', filters.to_date);
+      }
+      
+      // Always get all records for DataBank
+      params.append('all', 'true');
+      
+      const response = await API.get(`/candidates/my-candidates-dtr/?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching my candidates:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Optimized function to get remarks with counts for DataBank report
+  getRemarksWithCounts: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      
+      // Add all filters if provided
+      if (filters.from_date) {
+        params.append('from_date', filters.from_date);
+      }
+      if (filters.to_date) {
+        params.append('to_date', filters.to_date);
+      }
+      if (filters.client) {
+        params.append('client', filters.client);
+      }
+      if (filters.executive) {
+        params.append('executive', filters.executive);
+      }
+      if (filters.state) {
+        params.append('state', filters.state);
+      }
+      if (filters.city) {
+        params.append('city', filters.city);
+      }
+      
+      const url = params.toString() ? `/candidates/remarks-with-counts/?${params.toString()}` : '/candidates/remarks-with-counts/';
+      const response = await API.get(url);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching remarks with counts:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Function to get candidate details - SIMPLE & FAST (first page only)
+  getCandidatesForRemark: async (remark, filters = {}) => {
+    try {
+      console.log(`🔍 Fetching candidates for remark: ${remark}`);
+      const params = new URLSearchParams();
+      params.append('remark', remark);
+      if (filters.from_date) params.append('from_date', filters.from_date);
+      if (filters.to_date) params.append('to_date', filters.to_date);
+      if (filters.executive) params.append('executive', filters.executive);
+      if (filters.client) params.append('client', filters.client);
+      if (filters.state) params.append('state', filters.state);
+      if (filters.city) params.append('city', filters.city);
+      
+      const response = await API.get(`/candidates/all/?${params.toString()}`);
+      const data = response.data;
+      const candidates = data.results || data.data || [];
+      const totalCount = data.count || candidates.length;
+      
+      console.log(`✅ Fetched ${candidates.length} candidates for remark: ${remark}`);
+      
+      return {
+        results: candidates,
+        data: candidates,
+        count: candidates.length,
+        total_count: totalCount,
+        message: totalCount > 100 ? `Showing first 100 of ${totalCount} candidates` : `Showing all ${candidates.length} candidates`
+      };
+      
+    } catch (error) {
+      console.error("Error in simple candidate loading:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Server-side paginated fetch for candidates by remark (DRF PageNumberPagination)
+  getCandidatesForRemarkPaginated: async (remark, filters = {}, page = 1, page_size = 50) => {
+    try {
+      const params = new URLSearchParams();
+      params.append('remark', remark);
+      if (filters.from_date) params.append('from_date', filters.from_date);
+      if (filters.to_date) params.append('to_date', filters.to_date);
+      if (filters.executive) params.append('executive', filters.executive);
+      if (filters.client) params.append('client', filters.client);
+      if (filters.state) params.append('state', filters.state);
+      if (filters.city) params.append('city', filters.city);
+      if (filters.search) params.append('search', filters.search); // Add search parameter
+      params.append('page', String(page));
+      params.append('page_size', String(page_size));
+
+      const response = await API.get(`/candidates/all/?${params.toString()}`, { timeout: 30000 });
+      // Expected DRF shape: { count, next, previous, results }
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching paginated candidates for remark:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Load next page of candidates for "Load More" functionality
+  loadMoreCandidatesForRemark: async (remark, filters = {}, currentPage = 1) => {
+    try {
+      const nextPage = currentPage + 1;
+      console.log(`📄 Loading more candidates - Page ${nextPage} for remark: ${remark}`);
+      
+      const params = new URLSearchParams();
+      params.append('remark', remark);
+      if (filters.from_date) params.append('from_date', filters.from_date);
+      if (filters.to_date) params.append('to_date', filters.to_date);
+      params.append('page', nextPage.toString());
+      params.append('limit', '100');
+      
+      const startTime = performance.now();
+      const response = await API.get(`/candidates/all/?${params.toString()}`, {
+        timeout: 30000
+      });
+      const apiTime = performance.now() - startTime;
+      
+      const data = response.data;
+      const candidates = data.results || data.data || [];
+      
+      console.log(`📄 Load More complete: Page ${nextPage}, ${candidates.length} candidates in ${(apiTime/1000).toFixed(2)}s`);
+      
+      return {
+        results: candidates,
+        data: candidates,
+        count: candidates.length,
+        page: nextPage,
+        has_more: data.has_more || false,
+        total_count: data.total_count || 999
+      };
+      
+    } catch (error) {
+      console.error("Error loading more candidates:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // PROGRESSIVE loading - shows data immediately as it loads
+  getCandidatesForRemarkProgressive: async (remark, filters = {}, onDataReceived = null) => {
+    try {
+      console.log(`🔄 Starting PROGRESSIVE loading for remark: ${remark}`);
+      
+      let allCandidates = [];
+      let page = 1;
+      const limit = 200; // Larger chunks for faster loading
+      
+      while (true) {
+        const params = new URLSearchParams();
+        params.append('remark', remark);
+        if (filters.from_date) params.append('from_date', filters.from_date);
+        if (filters.to_date) params.append('to_date', filters.to_date);
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        
+        try {
+          const response = await API.get(`/candidates/all/?${params.toString()}`, {
+            timeout: 10000  // Faster timeout
+          });
+          
+          const data = response.data;
+          const candidates = data.results || data.data || [];
+          
+          if (candidates.length === 0) break;
+          
+          allCandidates = [...allCandidates, ...candidates];
+          
+          // Immediately notify the component with new data
+          if (onDataReceived) {
+            onDataReceived(allCandidates, data.total_count || allCandidates.length);
+          }
+          
+          console.log(`🔄 Page ${page}: +${candidates.length} candidates (Total: ${allCandidates.length})`);
+          
+          if (candidates.length < limit) break; // Last page
+          page++;
+          
+          // No delay - load as fast as possible
+          
+        } catch (error) {
+          console.error(`❌ Page ${page} failed:`, error.message);
+          break;
+        }
+      }
+      
+      console.log(`🔄 Progressive loading complete: ${allCandidates.length} candidates`);
+      return allCandidates;
+      
+    } catch (error) {
+      console.error("Error in progressive loading:", error);
+      throw error;
+    }
+  },
+
+  // New function for chunked loading of candidates
+  getCandidatesForRemarkChunked: async (remark, filters = {}, offset = 0, limit = 100) => {
+    try {
+      const params = new URLSearchParams();
+      
+      // Add remark filter
+      params.append('remark', remark);
+      
+      // Add date filters if provided
+      if (filters.from_date) {
+        params.append('from_date', filters.from_date);
+      }
+      if (filters.to_date) {
+        params.append('to_date', filters.to_date);
+      }
+      
+      // Add pagination parameters
+      params.append('offset', offset.toString());
+      params.append('limit', limit.toString());
+      
+      console.log(`📦 Fetching chunk: offset=${offset}, limit=${limit}`);
+      
+      // Use the all candidates endpoint with chunked parameters
+      const response = await API.get(`/candidates/all/?${params.toString()}`, {
+        timeout: 30000  // 30 seconds per chunk
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching candidates chunk:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // New function to fetch ALL candidates for a specific remark (no pagination)
+  getAllCandidatesForRemark: async (remark, filters = {}) => {
+    const apiStartTime = performance.now();
+    try {
+      console.log(`🔍 [API-TIMING] Starting API call to fetch ALL candidates for remark: "${remark}"`);
+      console.log(`🔍 [API-TIMING] Request filters:`, filters);
+      
+      const requestStartTime = performance.now();
+      
+      const params = new URLSearchParams();
+      params.append('remark', remark);
+      
+      // Add date filters if provided
+      if (filters.from_date) {
+        params.append('from_date', filters.from_date);
+      }
+      if (filters.to_date) {
+        params.append('to_date', filters.to_date);
+      }
+      
+      // Add executive filter if provided (CRITICAL FIX)
+      if (filters.executive) {
+        params.append('executive', filters.executive);
+      }
+      
+      // Add client filter if provided
+      if (filters.client) {
+        params.append('client', filters.client);
+      }
+      
+      // Add state filter if provided
+      if (filters.state) {
+        params.append('state', filters.state);
+      }
+      
+      // Add city filter if provided
+      if (filters.city) {
+        params.append('city', filters.city);
+      }
+      
+      // Use 'all=true' to get all records without pagination
+      params.append('all', 'true');
+      
+      console.log(`🌐 [API-TIMING] Making request to: /candidates/all/?${params.toString()}`);
+      
+      const response = await API.get(`/candidates/all/?${params.toString()}`, {
+        timeout: 60000 // 60 seconds for large datasets
+      });
+      
+      const requestEndTime = performance.now();
+      const requestDuration = requestEndTime - requestStartTime;
+      
+      const responseProcessStart = performance.now();
+      
+      const data = response.data;
+      const candidates = data.results || data.data || [];
+      const totalApiTime = performance.now() - apiStartTime;
+      const responseProcessTime = performance.now() - responseProcessStart;
+      
+      console.log(`✅ [API-TIMING] API call completed successfully:`, {
+        remark: remark,
+        records_received: candidates.length,
+        network_time: `${(requestDuration/1000).toFixed(2)}s`,
+        response_processing: `${(responseProcessTime/1000).toFixed(2)}s`,
+        total_api_time: `${(totalApiTime/1000).toFixed(2)}s`,
+        throughput: `${Math.round(candidates.length / (totalApiTime/1000))} records/sec`,
+        response_size: response.headers['content-length'] ? `${Math.round(response.headers['content-length']/1024)}KB` : 'Unknown'
+      });
+      
+      return {
+        results: candidates,
+        data: candidates,
+        count: candidates.length,
+        total_count: candidates.length,
+        message: `Loaded all ${candidates.length} candidates`
+      };
+      
+    } catch (error) {
+      const errorTime = performance.now();
+      const errorDuration = errorTime - apiStartTime;
+      console.error(`❌ [API-TIMING] API call failed after ${(errorDuration/1000).toFixed(2)}s:`, {
+        remark: remark,
+        error_message: error.message,
+        error_details: error.response?.data || error.message,
+        status_code: error.response?.status,
+        timeout: errorDuration > 58000 ? 'YES - Request timed out' : 'NO'
+      });
+      throw error;
+    }
+  },
+
+  // New function to fetch ALL candidates from database (not employee-specific)
+  fetchAllCandidates: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      
+      // Add date filters if provided
+      if (filters.from_date) {
+        params.append('from_date', filters.from_date);
+      }
+      if (filters.to_date) {
+        params.append('to_date', filters.to_date);
+      }
+      
+      // Always add 'all=true' to get all records without pagination
+      params.append('all', 'true');
+      
+      const url = `/candidates/all/?${params.toString()}`;
+      const response = await API.get(url);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching all candidates:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+  getAllCandidatesProgressive: async (filters = {}, onDataReceived = null) => {
+    try {
+      console.log("Starting PROGRESSIVE loading for candidates with filters:", filters);
+      
+      let allCandidates = [];
+      let page = 1;
+      const limit = 200; // Larger chunks for faster loading
+      
+      while (true) {
+        const params = new URLSearchParams();
+        
+        // Add all filters
+        Object.keys(filters).forEach(key => {
+          if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
+            params.append(key, filters[key]);
+          }
+        });
+        
+        // Add pagination
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        
+        try {
+          const response = await API.get(`/candidates/all/?${params.toString()}`, {
+            timeout: 10000  // 10 seconds timeout
+          });
+          
+          const data = response.data;
+          const candidates = data.results || data.data || [];
+          
+          if (candidates.length === 0) break;
+          
+          allCandidates = [...allCandidates, ...candidates];
+          
+          // Immediately notify the component with new data
+          if (onDataReceived) {
+            onDataReceived(allCandidates, data.total_count || allCandidates.length);
+          }
+          
+          console.log("🔄 Page " + page + ": +" + candidates.length + " candidates (Total: " + allCandidates.length + ")");
+          
+          if (candidates.length < limit) break; // Last page
+          page++;
+          
+        } catch (error) {
+          console.error("❌ Page " + page + " failed: " + error.message);
+          break;
+        }
+      }
+      
+      console.log("🔄 Progressive loading complete: " + allCandidates.length + " candidates");
+      return allCandidates;
+      
+    } catch (error) {
+      console.error("Error in getAllCandidatesProgressive:", error);
+      throw error;
+    }
+  },
+
+  // Profile IN/OUT API methods
+  getProfileIn: async (queryString = '') => {
+    try {
+      const url = queryString ? `/candidates/profile-in/?${queryString}` : '/candidates/profile-in/';
+      const response = await API.get(url);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching Profile IN data:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  getProfileOut: async (queryString = '') => {
+    try {
+      const url = queryString ? `/candidates/profile-out/?${queryString}` : '/candidates/profile-out/';
+      const response = await API.get(url);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching Profile OUT data:", error.response?.data || error.message);
+      throw error;
+    }
+  },
+};
+
