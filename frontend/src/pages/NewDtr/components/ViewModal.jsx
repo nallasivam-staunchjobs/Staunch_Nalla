@@ -27,6 +27,7 @@ import {
   PhoneOff,
   Search,
   Phone,
+  Trash,
 } from 'lucide-react';
 import { twMerge } from "tailwind-merge";
 import { useAppContext, useAppActions } from '../../../context/AppContext';
@@ -682,6 +683,8 @@ const CandidateDetailsModal = ({
   const [isClientJobModalOpen, setIsClientJobModalOpen] = useState(false);
   const [clientJobCallStatus, setClientJobCallStatus] = useState(''); // 'call answered' or 'call not answered'
   const [clientJobFormSubmitted, setClientJobFormSubmitted] = useState(false); // Track if form has been submitted
+  const [showProfileSubmissionDeleteModal, setShowProfileSubmissionDeleteModal] = useState(false);
+  const [showAttendDeleteModal, setShowAttendDeleteModal] = useState(false);
 
   // API dropdown data state
   const [vendorOptions, setVendorOptions] = useState([]);
@@ -989,6 +992,12 @@ const CandidateDetailsModal = ({
     if (isNewSubmission) {
       setIsDateFromBackend(false);
     }
+  };
+
+  const handleConfirmDeleteProfileSubmission = () => {
+    handleProfileSubmissionChange('');
+    setShowProfileSubmissionDeleteModal(false);
+    toast.success('Profile submission deleted successfully');
   };
 
   // Handle Attend change
@@ -5885,7 +5894,22 @@ const CandidateDetailsModal = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   {/* Profile Submission */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Profile Submission</label>
+                    <div className="flex items-center gap-2 mb-1">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Profile Submission
+                      </label>
+                      {clientJobFormData.profileSubmission === "Yes" && (
+                        <button
+                          type="button"
+                          onClick={() => clientJobCallStatus === 'call answered' && setShowProfileSubmissionDeleteModal(true)}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={clientJobCallStatus !== 'call answered'}
+                          title="Clear profile submission"
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center space-x-6">
                       <label className={`inline-flex items-center ${clientJobCallStatus === 'call answered' ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                         <div className="relative">
@@ -5956,7 +5980,10 @@ const CandidateDetailsModal = ({
                   {/* Submission Date - Only show when Profile Submission is "Yes" */}
                   {clientJobFormData.profileSubmission === "Yes" && (
                     <div>
+                      
                       <label className="block text-sm font-medium text-gray-700 mb-1">Submission Date</label>
+                     
+                     
                       <div className="relative">
                         <input
                           type="date"
@@ -5992,7 +6019,20 @@ const CandidateDetailsModal = ({
               {canEditClientJob() && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Attend</label>
+                    <div className="flex items-center gap-2 mb-1">
+                      <label className="block text-sm font-medium text-gray-700">Attend</label>
+                      {clientJobFormData.attend === "Yes" && (
+                        <button
+                          type="button"
+                          onClick={() => clientJobCallStatus === 'call answered' && setShowAttendDeleteModal(true)}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={clientJobCallStatus !== 'call answered'}
+                          title="Clear attend"
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center space-x-4">
                       <label className={`inline-flex items-center ${clientJobCallStatus === 'call answered' ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                         <input
@@ -6250,6 +6290,70 @@ const CandidateDetailsModal = ({
         candidate={selectedCandidateForFeedback}
         clientJobId={selectedCandidateForFeedback?.clientJobId}
       />
+
+      {showProfileSubmissionDeleteModal && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white text-black rounded-lg shadow-lg p-4 sm:p-6 w-full max-w-md mx-auto">
+            <h2 className="text-lg font-bold mb-4">Confirm Delete</h2>
+            <p className="mb-6">
+              Are you sure you want to delete{' '}
+              <span className="font-bold ms-1">
+                {candidate?.name || 'this candidate'}
+              </span>
+              's profile submission?
+            </p>
+            <div className="flex justify-end gap-2 sm:gap-3">
+              <button
+                onClick={() => setShowProfileSubmissionDeleteModal(false)}
+                className="px-3 sm:px-4 py-1.5 sm:py-2 rounded bg-gray-300 hover:bg-gray-400 text-sm sm:text-base"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteProfileSubmission}
+                className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded bg-red-600 text-white hover:bg-red-700 text-sm sm:text-base"
+              >
+                <Trash className="w-4 h-4" />
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAttendDeleteModal && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white text-black rounded-lg shadow-lg p-4 sm:p-6 w-full max-w-md mx-auto">
+            <h2 className="text-lg font-bold mb-4">Confirm Delete</h2>
+            <p className="mb-6">
+              Are you sure you want to delete{' '}
+              <span className="font-bold ms-1">
+                {candidate?.name || 'this candidate'}
+              </span>
+              's attend status?
+            </p>
+            <div className="flex justify-end gap-2 sm:gap-3">
+              <button
+                onClick={() => setShowAttendDeleteModal(false)}
+                className="px-3 sm:px-4 py-1.5 sm:py-2 rounded bg-gray-300 hover:bg-gray-400 text-sm sm:text-base"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleAttendChange('No');
+                  setShowAttendDeleteModal(false);
+                  toast.success('Attend status deleted successfully');
+                }}
+                className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded bg-red-600 text-white hover:bg-red-700 text-sm sm:text-base"
+              >
+                <Trash className="w-4 h-4" />
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

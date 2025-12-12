@@ -10,20 +10,20 @@ const ClientwiseReport = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { locationData, getCitiesByState, getStatesByCountry } = useLocationDropdowns();
-
+  
   // Get URL parameters and determine view type from URL path
   const currentPath = window.location.pathname;
   let viewType = searchParams.get('view') || 'month';
-
+  
   // Since we removed the specific paths, just use query parameter
-
+  
   const branchId = searchParams.get('branch');
-  const planId = searchParams.get('plan'); ``
+  const planId = searchParams.get('plan');``
   const dateParam = searchParams.get('date'); // Get date parameter from URL
   const __today = new Date();
   const todayISO = `${__today.getFullYear()}-${String(__today.getMonth() + 1).padStart(2, '0')}-${String(__today.getDate()).padStart(2, '0')}`;
   const defaultDate = dateParam || todayISO;
-
+  
   // State management
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +41,7 @@ const ClientwiseReport = () => {
     selectedEmployee: '',
     selectedClient: ''
   });
-
+  
   // Applied filters state
   const [appliedFilters, setAppliedFilters] = useState({
     fromDate: defaultDate,
@@ -79,7 +79,7 @@ const ClientwiseReport = () => {
   const [showJobRowsModal, setShowJobRowsModal] = useState(false);
   const [jobRows, setJobRows] = useState([]);
   const [jobRowsTitle, setJobRowsTitle] = useState('');
-
+  
   const [clientStatusCounts, setClientStatusCounts] = useState({
     attended: 0,
     attendedActive: 0,
@@ -111,14 +111,14 @@ const ClientwiseReport = () => {
     noShows: 0,
     others: 0
   });
-
+  
   // Rows returned by backend aggregated clientwise report
   // null = not yet loaded or error (use fallback from events/vendors)
   // []   = loaded successfully but no matching rows for current filters
   const [clientReportRows, setClientReportRows] = useState(null);
   // Rows returned by backend aggregated employeewise report
   const [employeeReportRows, setEmployeeReportRows] = useState([]);
-
+  
   // Helper to get current counts based on active report
   const currentStatusCounts = activeReport === 'client' ? clientStatusCounts : employeeStatusCounts;
 
@@ -601,11 +601,11 @@ const ClientwiseReport = () => {
     setLoading(true);
     try {
       const params = {};
-
+      
       if (branchId) params.branch_id = branchId;
       if (planId) params.plan_id = planId;
       if (dateParam) params.date = dateParam;
-
+      
       let data;
       switch (viewType) {
         case 'month':
@@ -620,7 +620,7 @@ const ClientwiseReport = () => {
         default:
           data = await calendarAPI.getMonthView(params);
       }
-
+      
       // Process events to calculate counts from comma-separated ID strings
       const processedEvents = (data.results || []).map((event) => {
         return {
@@ -631,9 +631,9 @@ const ClientwiseReport = () => {
           profilesOnOthers: getCallStatCount(event.tb_calls_profilesothers)
         };
       });
-
+      
       setEvents(processedEvents);
-
+      
     } catch (error) {
       setEvents([]);
     } finally {
@@ -692,38 +692,38 @@ const ClientwiseReport = () => {
             return status === 'active' && (level === 'L1' || level === 'L2' || level === 'L3');
           })
           .map(emp => {
-            const full = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
-            const name = full || emp.name || emp.employee_name || emp.employeeCode || 'Employee';
-            const employeeCode = emp.employeeCode || emp.emp_code || emp.empcode || emp.employee_code || '';
+          const full = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+          const name = full || emp.name || emp.employee_name || emp.employeeCode || 'Employee';
+          const employeeCode = emp.employeeCode || emp.emp_code || emp.empcode || emp.employee_code || '';
 
-            // Derive branch info from various shapes
-            let branchId = null, branchCode = null, branchName = null;
-            const b = emp?.branch;
-            if (b && typeof b === 'object') {
-              branchId = b.id ?? b.pk ?? null;
-              branchCode = (b.code ?? b.branchcode ?? b.branch_code ?? null);
-              branchName = (b.name ?? b.branch_name ?? null);
-            } else if (typeof b === 'number') {
-              branchId = b;
-            } else if (typeof b === 'string') {
-              branchName = b;
-            }
-            if (branchId == null) branchId = emp?.branch_id ?? null;
-            if (branchCode == null) branchCode = emp?.branch_code ?? emp?.branchCode ?? null;
-            if (branchName == null) branchName = emp?.branch_name ?? emp?.branchName ?? null;
+          // Derive branch info from various shapes
+          let branchId = null, branchCode = null, branchName = null;
+          const b = emp?.branch;
+          if (b && typeof b === 'object') {
+            branchId = b.id ?? b.pk ?? null;
+            branchCode = (b.code ?? b.branchcode ?? b.branch_code ?? null);
+            branchName = (b.name ?? b.branch_name ?? null);
+          } else if (typeof b === 'number') {
+            branchId = b;
+          } else if (typeof b === 'string') {
+            branchName = b;
+          }
+          if (branchId == null) branchId = emp?.branch_id ?? null;
+          if (branchCode == null) branchCode = emp?.branch_code ?? emp?.branchCode ?? null;
+          if (branchName == null) branchName = emp?.branch_name ?? emp?.branchName ?? null;
 
-            return {
-              id: emp.id,
-              value: name,
-              label: name,
-              status: emp.status || emp.Status || '',
-              level: emp.level || '',
-              branchId,
-              branchCode,
-              branchName,
-              employeeCode
-            };
-          });
+          return {
+            id: emp.id,
+            value: name,
+            label: name,
+            status: emp.status || emp.Status || '',
+            level: emp.level || '',
+            branchId,
+            branchCode,
+            branchName,
+            employeeCode
+          };
+        });
       }
 
       const merged = {
@@ -791,14 +791,14 @@ const ClientwiseReport = () => {
       if (appliedFilters.selectedEmployee && event.employee_name !== appliedFilters.selectedEmployee) return false;
       if (appliedFilters.selectedClient && event.client_name !== appliedFilters.selectedClient) return false;
       if (appliedFilters.selectedBranch && (event.branch || event.branch_name) !== appliedFilters.selectedBranch) return false;
-      if (appliedFilters.state && event.state_name !== appliedFilters.state) return false;
-      if (appliedFilters.city && event.city_name !== appliedFilters.city) return false;
-
+      if(appliedFilters.state && event.state_name !== appliedFilters.state) return false;
+      if(appliedFilters.city && event.city_name !== appliedFilters.city) return false;
+      
       // Search filter
       if (branchEventsSearchTerm) {
         const searchLower = branchEventsSearchTerm.trim().toLowerCase();
         if (!searchLower) return true; // If search is empty, don't filter out
-
+        
         // Define all possible searchable fields with fallbacks
         const searchableFields = [
           event.tb_call_plan_data || '',
@@ -814,15 +814,15 @@ const ClientwiseReport = () => {
           event.clientName || '',
           event.branch_name || ''
         ];
-
+        
         // Check if any field contains the search term (case-insensitive)
-        const matchesSearch = searchableFields.some(field =>
+        const matchesSearch = searchableFields.some(field => 
           String(field).toLowerCase().includes(searchLower)
         );
-
+        
         if (!matchesSearch) return false;
       }
-
+      
       return true;
     });
   }, [events, appliedFilters, branchEventsSearchTerm]);
@@ -1101,7 +1101,7 @@ const ClientwiseReport = () => {
     if (hookStates.length) return hookStates;
 
     // Fallback to existing dropdown/events-derived states
-    const dropdownStates = (dropdownOptions.states || []).map(state =>
+    const dropdownStates = (dropdownOptions.states || []).map(state => 
       state.state || state.label || state.value || state.name
     ).filter(Boolean);
     const eventStates = events.map(event => event.state || event.state_name).filter(Boolean);
@@ -1140,15 +1140,15 @@ const ClientwiseReport = () => {
 
   const sourceOptions = useMemo(() => {
     // Get unique source names from dropdown options
-    const dropdownSources = (dropdownOptions.sources || []).map(source =>
+    const dropdownSources = (dropdownOptions.sources || []).map(source => 
       source.name || source.source_name || source.label || source.value
     ).filter(Boolean);
-
+    
     // Get unique source names from events
-    const eventSources = events.map(event =>
+    const eventSources = events.map(event => 
       event.source || event.source_name
     ).filter(Boolean);
-
+    
     // Combine and deduplicate
     const allSources = [...new Set([...dropdownSources, ...eventSources])];
     return allSources.map(source => ({ id: source, value: source, label: source }));
@@ -1321,7 +1321,7 @@ const ClientwiseReport = () => {
     };
 
     const title = `${getStatsTypeDisplayName(statsType)} - ${event?.employee_name || 'Event'}`;
-
+    
     const reportData = {
       candidates: [], // Will be fetched by IDs in the report
       candidateIds: candidateIds,
@@ -1330,12 +1330,12 @@ const ClientwiseReport = () => {
       eventData: event,
       timestamp: Date.now()
     };
-
+    
     try {
       // Generate a unique key for this report session
       const reportKey = `candidate_table_report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       sessionStorage.setItem(reportKey, JSON.stringify(reportData));
-
+      
       // Clean up old report data (older than 1 hour) to prevent storage bloat
       Object.keys(sessionStorage).forEach(key => {
         if (key.startsWith('candidate_table_report_')) {
@@ -1350,17 +1350,17 @@ const ClientwiseReport = () => {
           }
         }
       });
-
+      
       // Pass only the key and basic info through URL
       const params = new URLSearchParams({
         title: title,
         statsType: statsType,
         reportKey: reportKey
       });
-
+      
       const url = `/candidate-table-report?${params.toString()}`;
       window.open(url, '_blank');
-
+      
     } catch (error) {
       // Fallback: show error message to user
       alert('Unable to open candidate report. Please try again.');
@@ -1479,9 +1479,9 @@ const ClientwiseReport = () => {
     }
   };
 
+ 
 
-
-
+  
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -1498,24 +1498,26 @@ const ClientwiseReport = () => {
                   <div className="flex space-x-4 border-b border-gray-200">
                     <button
                       onClick={() => setActiveReport('client')}
-                      className={`px-4 py-2 text-sm font-medium ${activeReport === 'client'
-                        ? 'border-b-2 border-blue-500 text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                        }`}
+                      className={`px-4 py-2 text-sm font-medium ${
+                        activeReport === 'client'
+                          ? 'border-b-2 border-blue-500 text-blue-600'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
                     >
                       Clientwise Report
                     </button>
                     <button
                       onClick={() => setActiveReport('employee')}
-                      className={`px-4 py-2 text-sm font-medium ${activeReport === 'employee'
-                        ? 'border-b-2 border-blue-500 text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                        }`}
+                      className={`px-4 py-2 text-sm font-medium ${
+                        activeReport === 'employee'
+                          ? 'border-b-2 border-blue-500 text-blue-600'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
                     >
                       Employee Wise Report
                     </button>
                   </div>
-
+                 
                 </div>
               </div>
             </div>
@@ -1526,7 +1528,7 @@ const ClientwiseReport = () => {
         </div>
       </div>
 
-
+     
       {/* Filter Dropdowns */}
       <div className="bg-white mt-2 px-3 py-2">
         {/* Toggle button for mobile */}
@@ -1628,7 +1630,7 @@ const ClientwiseReport = () => {
             </select>
           </div>
 
-          <div>
+          {/* <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               State
             </label>
@@ -1644,10 +1646,10 @@ const ClientwiseReport = () => {
                 </option>
               ))}
             </select>
-          </div>
-
+          </div> */}
+          
           {/* City */}
-          <div>
+          {/* <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               City
             </label>
@@ -1669,7 +1671,7 @@ const ClientwiseReport = () => {
                 </option>
               ))}
             </select>
-          </div>
+          </div> */}
 
           {/* Apply Filters Button */}
           <div className="flex items-end">
@@ -1684,7 +1686,7 @@ const ClientwiseReport = () => {
               }}
               className="w-full px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-xs font-medium"
             >
-              Apply
+              Apply 
             </button>
           </div>
 
@@ -1711,7 +1713,7 @@ const ClientwiseReport = () => {
               }}
               className="w-full px-3 py-1 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-xs"
             >
-              Clear
+              Clear 
             </button>
           </div>
         </div>
@@ -1752,162 +1754,162 @@ const ClientwiseReport = () => {
       {/* Events Content */}
       <div className="mt-0">
         <div className="overflow-x-auto overflow-y-auto scrollbar-desktop max-h-[calc(100vh-300px)]">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-white sticky top-0 z-10 border border-gray-200">
-              <tr>
-                <th className="px-1.5 py-3 text-center text-sm font-medium uppercase tracking-wider">S.No</th>
-                <th className="px-3 py-3 text-left text-sm font-medium uppercase tracking-wider">
-                  {activeReport === 'client' ? 'Client' : 'Employee'}
-                </th>
-                {activeReport === 'employee' && (
-                  <th className="px-3 py-3 text-left text-sm font-medium uppercase tracking-wider">Client</th>
-                )}
-                {/* <th className="px-3 py-3 text-left text-sm font-medium uppercase tracking-wider">Employee</th> */}
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>PROFILE SUBMITTED</span>
-                    <span
-                      className="text-sm font-normal text-blue-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.profileSubmitted || 0})
-                    </span>
-                    <div className="mt-1 flex items-center gap-1 text-[11px]">
-                      <span
-                        className="px-2 py-0.5 rounded bg-green-100 text-green-700"
-                      >
-                        Ongoing {currentStatusCounts.profileSubmittedActive || 0}
-                      </span>
-                      <span className="text-gray-400">/</span>
-                      <span
-                        className="px-2 py-0.5 rounded bg-red-100 text-red-700"
-                      >
-                        {currentStatusCounts.profileSubmittedInactive || 0} Transfer
-                      </span>
-                    </div>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>ATTENDED</span>
-                    <span
-                      className="text-sm font-normal text-green-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.attended || 0})
-                    </span>
-                    <div className="mt-1 flex items-center gap-1 text-[11px]">
-                      <span
-                        className="px-2 py-0.5 rounded bg-green-100 text-green-700"
-                      >
-                        Ongoing {currentStatusCounts.attendedActive || 0}
-                      </span>
-                      <span className="text-gray-400">/</span>
-                      <span
-                        className="px-2 py-0.5 rounded bg-red-100 text-red-700"
-                      >
-                        {currentStatusCounts.attendedInactive || 0} Transfer
-                      </span>
-                    </div>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>SELECTED</span>
-                    <span
-                      className="text-sm font-normal text-blue-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.selected || 0})
-                    </span>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>REJECTED</span>
-                    <span
-                      className="text-sm font-normal text-blue-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.rejected || 0})
-                    </span>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>FEEDBACK PENDING</span>
-                    <span
-                      className="text-sm font-normal text-red-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.feedbackPending || 0})
-                    </span>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>NEXT ROUND</span>
-                    <span
-                      className="text-sm font-normal text-amber-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.nextRound || 0})
-                    </span>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>IN PROCESS</span>
-                    <span
-                      className="text-sm font-normal text-purple-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.inProcess || 0})
-                    </span>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>NO SHOW</span>
-                    <span
-                      className="text-sm font-normal text-red-600 rounded px-1"
-                    >
-                      ({currentStatusCounts.noShows || 0})
-                    </span>
-                  </div>
-                </th>
-                <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span>OTHERS</span>
-                    <span
-                      className="text-sm font-normal text-slate-700 rounded px-1"
-                    >
-                      ({currentStatusCounts.others || 0})
-                    </span>
-                  </div>
-                </th>
-
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedBranchEvents.map((event, index) => (
-                <tr key={event.id || index} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-1 py-1 text-center text-sm text-gray-500">
-                    {branchEventsStartIndex + index + 1}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div>
-                      <div className="font-semibold text-gray-900 text-sm">
-                        {activeReport === 'client' ? (event.client_name || 'N/A') : (event.employee_name || event.employee_code || 'N/A')}
-                      </div>
-                    </div>
-                  </td>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-white sticky top-0 z-10 border border-gray-200">
+                <tr>
+                  <th className="px-1.5 py-3 text-center text-sm font-medium uppercase tracking-wider">S.No</th>
+                  <th className="px-3 py-3 text-left text-sm font-medium uppercase tracking-wider">
+                    {activeReport === 'client' ? 'Client' : 'Employee'}
+                  </th>
                   {activeReport === 'employee' && (
-                    <td className="px-3 py-2 align-top">
-                      {Array.isArray(event.clients) && event.clients.length ? (
-                        <div className="text-xs text-gray-700 truncate" title={event.clients.join(', ')}>
-                          {event.clients.join(', ')}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-400">-</span>
-                      )}
-                    </td>
+                    <th className="px-3 py-3 text-left text-sm font-medium uppercase tracking-wider">Client</th>
                   )}
+                  {/* <th className="px-3 py-3 text-left text-sm font-medium uppercase tracking-wider">Employee</th> */}
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>PROFILE SUBMITTED</span>
+                      <span
+                        className="text-sm font-normal text-blue-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.profileSubmitted || 0})
+                      </span>
+                      <div className="mt-1 flex items-center gap-1 text-[11px]">
+                        <span
+                          className="px-2 py-0.5 rounded bg-green-100 text-green-700"
+                        >
+                          Ongoing {currentStatusCounts.profileSubmittedActive || 0}
+                        </span>
+                        <span className="text-gray-400">/</span>
+                        <span
+                          className="px-2 py-0.5 rounded bg-red-100 text-red-700"
+                        >
+                          {currentStatusCounts.profileSubmittedInactive || 0} Transfer
+                        </span>
+                      </div>  
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>ATTENDED</span>
+                      <span
+                        className="text-sm font-normal text-green-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.attended || 0})
+                      </span>
+                      <div className="mt-1 flex items-center gap-1 text-[11px]">
+                        <span
+                          className="px-2 py-0.5 rounded bg-green-100 text-green-700"
+                        >
+                          Ongoing {currentStatusCounts.attendedActive || 0}
+                        </span>
+                        <span className="text-gray-400">/</span>
+                        <span
+                          className="px-2 py-0.5 rounded bg-red-100 text-red-700"
+                        >
+                          {currentStatusCounts.attendedInactive || 0} Transfer
+                        </span>
+                      </div>  
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>SELECTED</span>
+                      <span
+                        className="text-sm font-normal text-blue-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.selected || 0})
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>REJECTED</span>
+                      <span
+                        className="text-sm font-normal text-blue-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.rejected || 0})
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>FEEDBACK PENDING</span>
+                      <span
+                        className="text-sm font-normal text-red-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.feedbackPending || 0})
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>NEXT ROUND</span>
+                      <span
+                        className="text-sm font-normal text-amber-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.nextRound || 0})
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>IN PROCESS</span>
+                      <span
+                        className="text-sm font-normal text-purple-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.inProcess || 0})
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>NO SHOW</span>
+                      <span
+                        className="text-sm font-normal text-red-600 rounded px-1"
+                      >
+                        ({currentStatusCounts.noShows || 0})
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-3 py-3 text-center text-sm font-medium uppercase tracking-wider whitespace-nowrap">
+                    <div className="flex flex-col items-center">
+                      <span>OTHERS</span>
+                      <span
+                        className="text-sm font-normal text-slate-700 rounded px-1"
+                      >
+                        ({currentStatusCounts.others || 0})
+                      </span>
+                    </div>
+                  </th>
+                  
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {paginatedBranchEvents.map((event, index) => (
+                  <tr key={event.id || index} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-1 py-1 text-center text-sm text-gray-500">
+                      {branchEventsStartIndex + index + 1}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div>
+                        <div className="font-semibold text-gray-900 text-sm">
+                          {activeReport === 'client' ? (event.client_name || 'N/A') : (event.employee_name || event.employee_code || 'N/A')}
+                        </div>
+                      </div>
+                    </td>
+                    {activeReport === 'employee' && (
+                      <td className="px-3 py-2 align-top">
+                        {Array.isArray(event.clients) && event.clients.length ? (
+                          <div className="text-xs text-gray-700 truncate" title={event.clients.join(', ')}>
+                            {event.clients.join(', ')}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
+                      </td>
+                    )}
 
-                  {/* <td className="px-4 py-1">
+                    {/* <td className="px-4 py-1">
                       <div>
                         <div className="font-semibold text-gray-900 text-sm">
                           {event.employee_name || 'N/A'}
@@ -1917,188 +1919,188 @@ const ClientwiseReport = () => {
                         </div>
                       </div>
                     </td> */}
-                  <td className="px-3 py-2 text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <span
-                        className={`px-1.5 py-0.5 rounded bg-green-100 text-green-700 ${((event.profileSubmittedActive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
-                        title={((event.profileSubmittedActive || 0) > 0) ? 'View Active Profile Submitted candidates' : undefined}
-                        onClick={((event.profileSubmittedActive || 0) > 0) ? () => handleRowSplitClick(event, 'profileSubmitted', 'Active') : undefined}
-                      >
-                        {event.profileSubmittedActive || 0}
-                      </span>
-                      {/* <span className="text-gray-400">/</span> */}
-                      <span
-                        className={`px-1.5 py-0.5 rounded bg-red-100 text-red-700 ${((event.profileSubmittedInactive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
-                        title={((event.profileSubmittedInactive || 0) > 0) ? 'View Inactive Profile Submitted candidates' : undefined}
-                        onClick={((event.profileSubmittedInactive || 0) > 0) ? () => handleRowSplitClick(event, 'profileSubmitted', 'Inactive') : undefined}
-                      >
-                        {event.profileSubmittedInactive || 0}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    {/* <div 
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-3">
+                        <span
+                          className={`px-1.5 py-0.5 rounded bg-green-100 text-green-700 ${((event.profileSubmittedActive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
+                          title={((event.profileSubmittedActive || 0) > 0) ? 'View Active Profile Submitted candidates' : undefined}
+                          onClick={((event.profileSubmittedActive || 0) > 0) ? () => handleRowSplitClick(event, 'profileSubmitted', 'Active') : undefined}
+                        >
+                          {event.profileSubmittedActive || 0}
+                        </span>
+                        {/* <span className="text-gray-400">/</span> */}
+                        <span
+                          className={`px-1.5 py-0.5 rounded bg-red-100 text-red-700 ${((event.profileSubmittedInactive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
+                          title={((event.profileSubmittedInactive || 0) > 0) ? 'View Inactive Profile Submitted candidates' : undefined}
+                          onClick={((event.profileSubmittedInactive || 0) > 0) ? () => handleRowSplitClick(event, 'profileSubmitted', 'Inactive') : undefined}
+                        >
+                          {event.profileSubmittedInactive || 0}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {/* <div 
                         className="font-bold text-green-600 text-sm cursor-pointer hover:bg-green-50 rounded px-2 py-1 transition-colors"
                         onClick={() => handleStatsClick(event, 'attended')}
                         title="Attended Candidates"
                       >
                         {event.attended || 0}
                       </div> */}
-                    <div className="flex items-center justify-center gap-3">
-                      <span
-                        className={`px-1.5 py-0.5 rounded bg-green-100 text-green-700 ${((event.attendedActive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
-                        title={((event.attendedActive || 0) > 0) ? 'View Active Attended candidates' : undefined}
-                        onClick={((event.attendedActive || 0) > 0) ? () => handleRowSplitClick(event, 'attended', 'Active') : undefined}
+                      <div className="flex items-center justify-center gap-3">
+                        <span
+                          className={`px-1.5 py-0.5 rounded bg-green-100 text-green-700 ${((event.attendedActive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
+                          title={((event.attendedActive || 0) > 0) ? 'View Active Attended candidates' : undefined}
+                          onClick={((event.attendedActive || 0) > 0) ? () => handleRowSplitClick(event, 'attended', 'Active') : undefined}
+                        >
+                          {event.attendedActive || 0}
+                        </span>
+                        {/* <span className="text-gray-400">/</span> */}
+                        <span
+                          className={`px-1.5 py-0.5 rounded bg-red-100 text-red-700 ${((event.attendedInactive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
+                          title={((event.attendedInactive || 0) > 0) ? 'View Inactive Attended candidates' : undefined}
+                          onClick={((event.attendedInactive || 0) > 0) ? () => handleRowSplitClick(event, 'attended', 'Inactive') : undefined}
+                        >
+                          {event.attendedInactive || 0}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-blue-600 text-sm cursor-pointer hover:bg-blue-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'selected')}
+                        title="Selected Candidates"
                       >
-                        {event.attendedActive || 0}
-                      </span>
-                      {/* <span className="text-gray-400">/</span> */}
-                      <span
-                        className={`px-1.5 py-0.5 rounded bg-red-100 text-red-700 ${((event.attendedInactive || 0) > 0 ? 'cursor-pointer hover:opacity-80' : 'opacity-60 cursor-default')}`}
-                        title={((event.attendedInactive || 0) > 0) ? 'View Inactive Attended candidates' : undefined}
-                        onClick={((event.attendedInactive || 0) > 0) ? () => handleRowSplitClick(event, 'attended', 'Inactive') : undefined}
+                        {event.selected || 0}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-blue-600 text-sm cursor-pointer hover:bg-blue-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'rejected')}
+                        title="Rejected Candidates"
                       >
-                        {event.attendedInactive || 0}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-blue-600 text-sm cursor-pointer hover:bg-blue-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'selected')}
-                      title="Selected Candidates"
+                        {event.rejected || 0}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-red-600 text-sm cursor-pointer hover:bg-red-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'feedbackPending')}
+                        title="Feedback Pending"
+                      >
+                        {event.feedbackPending || 0}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-amber-600 text-sm cursor-pointer hover:bg-amber-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'nextRound')}
+                        title="Next Round Candidates"
+                      >
+                        {event.nextRound || 0}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-purple-600 text-sm cursor-pointer hover:bg-purple-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'inProcess')}
+                        title="In Process Candidates"
+                      >
+                        {event.inProcess || 0}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-red-600 text-sm cursor-pointer hover:bg-red-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'noShow')}
+                        title="No Show Candidates"
+                      >
+                        {event.noShows || 0}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div 
+                        className="font-bold text-slate-700 text-sm cursor-pointer hover:bg-slate-50 rounded px-2 py-1 transition-colors"
+                        onClick={() => handleStatsClick(event, 'others')}
+                        title="Other Remarks Candidates"
+                      >
+                        {event.others || 0}
+                      </div>
+                    </td>
+                    
+                  </tr>
+                ))}
+                {paginatedBranchEvents.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={activeReport === 'client' ? 11 : 12}
+                      className="px-3 py-6 text-center text-sm text-gray-500"
                     >
-                      {event.selected || 0}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-blue-600 text-sm cursor-pointer hover:bg-blue-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'rejected')}
-                      title="Rejected Candidates"
-                    >
-                      {event.rejected || 0}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-red-600 text-sm cursor-pointer hover:bg-red-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'feedbackPending')}
-                      title="Feedback Pending"
-                    >
-                      {event.feedbackPending || 0}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-amber-600 text-sm cursor-pointer hover:bg-amber-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'nextRound')}
-                      title="Next Round Candidates"
-                    >
-                      {event.nextRound || 0}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-purple-600 text-sm cursor-pointer hover:bg-purple-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'inProcess')}
-                      title="In Process Candidates"
-                    >
-                      {event.inProcess || 0}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-red-600 text-sm cursor-pointer hover:bg-red-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'noShow')}
-                      title="No Show Candidates"
-                    >
-                      {event.noShows || 0}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <div
-                      className="font-bold text-slate-700 text-sm cursor-pointer hover:bg-slate-50 rounded px-2 py-1 transition-colors"
-                      onClick={() => handleStatsClick(event, 'others')}
-                      title="Other Remarks Candidates"
-                    >
-                      {event.others || 0}
-                    </div>
-                  </td>
+                      No data found for the selected filters
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        
+      <EventFormModal
+        isOpen={showEditModal}
+        onClose={() => { setShowEditModal(false); setEditingEvent(null); }}
+        editingEvent={editingEvent}
+        onSubmit={handleModalSubmit}
+        dropdownOptions={dropdownOptionsForModal}
+        isSubmitting={isSubmitting}
+        existingEvents={events}
+      />
 
-                </tr>
-              ))}
-              {paginatedBranchEvents.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={activeReport === 'client' ? 11 : 12}
-                    className="px-3 py-6 text-center text-sm text-gray-500"
-                  >
-                    No data found for the selected filters
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <EventFormModal
-          isOpen={showEditModal}
-          onClose={() => { setShowEditModal(false); setEditingEvent(null); }}
-          editingEvent={editingEvent}
-          onSubmit={handleModalSubmit}
-          dropdownOptions={dropdownOptionsForModal}
-          isSubmitting={isSubmitting}
-          existingEvents={events}
-        />
-
-        {showJobRowsModal && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-            <div className="bg-white rounded shadow-lg w-[95vw] max-w-5xl max-h-[80vh] overflow-auto">
-              <div className="flex items-center justify-between px-3 py-2 border-b">
-                <h3 className="font-semibold text-sm">{jobRowsTitle || 'Job Rows'}</h3>
-                <button className="text-xs px-2 py-1 bg-gray-100 rounded" onClick={() => setShowJobRowsModal(false)}>Close</button>
-              </div>
-              <div className="p-3">
-                <table className="min-w-full text-xs border">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-2 py-1 border">S.No</th>
-                      <th className="px-2 py-1 border">Candidate</th>
-                      <th className="px-2 py-1 border">Client</th>
-                      <th className="px-2 py-1 border">Designation</th>
-                      <th className="px-2 py-1 border">Transfer Status</th>
-                      <th className="px-2 py-1 border">Profile Submitted</th>
-                      <th className="px-2 py-1 border">Submission Date</th>
-                      <th className="px-2 py-1 border">Remarks</th>
-                      <th className="px-2 py-1 border">Updated On</th>
+      {showJobRowsModal && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded shadow-lg w-[95vw] max-w-5xl max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between px-3 py-2 border-b">
+              <h3 className="font-semibold text-sm">{jobRowsTitle || 'Job Rows'}</h3>
+              <button className="text-xs px-2 py-1 bg-gray-100 rounded" onClick={() => setShowJobRowsModal(false)}>Close</button>
+            </div>
+            <div className="p-3">
+              <table className="min-w-full text-xs border">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-2 py-1 border">S.No</th>
+                    <th className="px-2 py-1 border">Candidate</th>
+                    <th className="px-2 py-1 border">Client</th>
+                    <th className="px-2 py-1 border">Designation</th>
+                    <th className="px-2 py-1 border">Transfer Status</th>
+                    <th className="px-2 py-1 border">Profile Submitted</th>
+                    <th className="px-2 py-1 border">Submission Date</th>
+                    <th className="px-2 py-1 border">Remarks</th>
+                    <th className="px-2 py-1 border">Updated On</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(jobRows || []).map((r, idx) => (
+                    <tr key={r.job_id || idx} className="hover:bg-gray-50">
+                      <td className="px-2 py-1 border">{idx + 1}</td>
+                      <td className="px-2 py-1 border">{r.candidate_name || '-'}</td>
+                      <td className="px-2 py-1 border">{r.client_name || '-'}</td>
+                      <td className="px-2 py-1 border">{r.designation || '-'}</td>
+                      <td className="px-2 py-1 border">{r.transfer_status || '-'}</td>
+                      <td className="px-2 py-1 border">{r.profile_submission === 1 ? 'Yes' : 'No'}</td>
+                      <td className="px-2 py-1 border">{r.profile_submission_date || '-'}</td>
+                      <td className="px-2 py-1 border">{r.remarks || '-'}</td>
+                      <td className="px-2 py-1 border">{r.updated_at ? new Date(r.updated_at).toLocaleString('en-IN') : '-'}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {(jobRows || []).map((r, idx) => (
-                      <tr key={r.job_id || idx} className="hover:bg-gray-50">
-                        <td className="px-2 py-1 border">{idx + 1}</td>
-                        <td className="px-2 py-1 border">{r.candidate_name || '-'}</td>
-                        <td className="px-2 py-1 border">{r.client_name || '-'}</td>
-                        <td className="px-2 py-1 border">{r.designation || '-'}</td>
-                        <td className="px-2 py-1 border">{r.transfer_status || '-'}</td>
-                        <td className="px-2 py-1 border">{r.profile_submission === 1 ? 'Yes' : 'No'}</td>
-                        <td className="px-2 py-1 border">{r.profile_submission_date || '-'}</td>
-                        <td className="px-2 py-1 border">{r.remarks || '-'}</td>
-                        <td className="px-2 py-1 border">{r.updated_at ? new Date(r.updated_at).toLocaleString('en-IN') : '-'}</td>
-                      </tr>
-                    ))}
-                    {(!jobRows || jobRows.length === 0) && (
-                      <tr>
-                        <td className="px-2 py-4 text-center border" colSpan={9}>No rows found</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                  {(!jobRows || jobRows.length === 0) && (
+                    <tr>
+                      <td className="px-2 py-4 text-center border" colSpan={9}>No rows found</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
       </div>
 
@@ -2131,7 +2133,7 @@ const ClientwiseReport = () => {
                 <ChevronLeft className="h-3 w-3" />
                 <ChevronLeft className="h-3 w-3 -ml-1" />
               </button>
-
+              
               {/* Previous Button */}
               <button
                 onClick={() => setBranchEventsCurrentPage(prev => Math.max(prev - 1, 1))}
@@ -2147,17 +2149,18 @@ const ClientwiseReport = () => {
                 const pages = [];
                 const totalPages = branchEventsTotalPages;
                 const current = branchEventsCurrentPage;
-
+                
                 // Always show first page
                 if (totalPages > 0) {
                   pages.push(
                     <button
                       key={1}
                       onClick={() => setBranchEventsCurrentPage(1)}
-                      className={`relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 ${current === 1
-                        ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
-                        : 'text-gray-900'
-                        }`}
+                      className={`relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 ${
+                        current === 1
+                          ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
+                          : 'text-gray-900'
+                      }`}
                     >
                       1
                     </button>
@@ -2176,17 +2179,18 @@ const ClientwiseReport = () => {
                 // Show pages around current page
                 const start = Math.max(2, current - 1);
                 const end = Math.min(totalPages - 1, current + 1);
-
+                
                 for (let i = start; i <= end; i++) {
                   if (i !== 1 && i !== totalPages) {
                     pages.push(
                       <button
                         key={i}
                         onClick={() => setBranchEventsCurrentPage(i)}
-                        className={`relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 ${current === i
-                          ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
-                          : 'text-gray-900'
-                          }`}
+                        className={`relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 ${
+                          current === i
+                            ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
+                            : 'text-gray-900'
+                        }`}
                       >
                         {i}
                       </button>
@@ -2209,10 +2213,11 @@ const ClientwiseReport = () => {
                     <button
                       key={totalPages}
                       onClick={() => setBranchEventsCurrentPage(totalPages)}
-                      className={`relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 ${current === totalPages
-                        ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
-                        : 'text-gray-900'
-                        }`}
+                      className={`relative inline-flex items-center px-3 py-2 text-xs font-semibold ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 ${
+                        current === totalPages
+                          ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
+                          : 'text-gray-900'
+                      }`}
                     >
                       {totalPages}
                     </button>
@@ -2231,7 +2236,7 @@ const ClientwiseReport = () => {
                 <span className="sr-only">Next</span>
                 <ChevronRight className="h-3 w-3" />
               </button>
-
+              
               {/* Last Page Button */}
               <button
                 onClick={() => setBranchEventsCurrentPage(branchEventsTotalPages)}
