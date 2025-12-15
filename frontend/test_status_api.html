@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Status History API</title>
+</head>
+<body>
+    <h1>Test Status History API</h1>
+    <button onclick="testCreateStatus()">Test Create Status History</button>
+    <button onclick="testGetTimeline()">Test Get Timeline</button>
+    <button onclick="testGetCalendar()">Test Get Calendar</button>
+    
+    <div id="results" style="margin-top: 20px; padding: 10px; background: #f5f5f5; white-space: pre-wrap;"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        
+        function log(message) {
+            const results = document.getElementById('results');
+            results.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+        }
+        
+        async function testCreateStatus() {
+            log('Testing status history creation...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/candidate/status-history/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        candidate_id: 196712,
+                        client_job_id: 196712,
+                        vendor_id: null,
+                        client_name: "Test Client",
+                        remarks: "interested",
+                        change_date: "2025-11-14",
+                        created_by: "EMP00100",
+                        extra_notes: "Test entry from frontend"
+                    })
+                });
+                
+                const data = await response.json();
+                log('Create Status Response: ' + JSON.stringify(data, null, 2));
+                
+            } catch (error) {
+                log('Create Status Error: ' + error.message);
+            }
+        }
+        
+        async function testGetTimeline() {
+            log('Testing timeline retrieval...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/candidate/candidates/196712/timeline/`);
+                const data = await response.json();
+                log('Timeline Response: ' + JSON.stringify(data, null, 2));
+                
+            } catch (error) {
+                log('Timeline Error: ' + error.message);
+            }
+        }
+        
+        async function testGetCalendar() {
+            log('Testing calendar retrieval...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/candidate/candidates/196712/calendar/?year=2025&month=11`);
+                const data = await response.json();
+                log('Calendar Response: ' + JSON.stringify(data, null, 2));
+                
+            } catch (error) {
+                log('Calendar Error: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

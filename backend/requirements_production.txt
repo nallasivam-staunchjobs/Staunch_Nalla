@@ -1,0 +1,50 @@
+# Minimal Production Requirements for HR CRM cPanel deployment
+# This file contains only essential packages to avoid build errors
+
+# Core Django
+Django==5.2.1
+
+# Database connector (using PyMySQL instead of mariadb)
+PyMySQL==1.1.1
+
+# Django REST Framework
+djangorestframework==3.16.0
+djangorestframework-simplejwt==5.5.0
+
+# CORS handling
+django-cors-headers==4.7.0
+
+# Django extensions
+django-extensions==4.1
+django-filter==25.1
+
+# Basic file handling
+python-docx==1.1.2
+docx2txt==0.9
+
+# HTTP requests
+requests==2.32.3
+
+# Image processing
+Pillow==11.0.0
+
+# Date/time handling
+python-dateutil==2.9.0.post0
+
+# Basic utilities
+pytz==2024.2
+six==1.16.0
+certifi==2025.8.3
+
+# Production server
+gunicorn==23.0.0
+
+# REMOVED PROBLEMATIC PACKAGES:
+# - mariadb (build issues)
+# - pandas (heavy dependency)
+# - numpy (heavy dependency) 
+# - pydantic (heavy dependency)
+# - cryptography (build issues)
+# - pyresparser (NLTK issues)
+# - spacy (heavy dependency)
+# - python-magic (system dependency issues)

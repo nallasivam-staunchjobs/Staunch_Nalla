@@ -1,0 +1,1656 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import { Eye, Loader2, Phone, Mail, MapPin, User, Users, Building, Calendar, ChevronLeft, ChevronRight, IndianRupee, DraftingCompass, Search, AlertCircle } from 'lucide-react';
+import { candidates as candidatesAPI } from '../../../api/api';
+// ViewModal removed - not needed for calendar display
+// import ViewModal from '../../NewDtr/components/ViewModal';
+// import { useAppContext, useAppActions } from '../../../context/AppContext';
+import toast from 'react-hot-toast';
+
+// Helper function to display null/undefined values as dash
+const displayValue = (value) => {
+  if (value === null || value === undefined || value === '' || value === 'null') {
+    return '-';
+  }
+  return value;
+};
+
+// Helper function to format dates
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  } catch (error) {
+    return dateString;
+  }
+};
+
+// Function to get the correct executive first name based on assignment status
+const getDisplayExecutiveName = (candidate, clientJob, employeeNames = {}) => {
+  // Check both executive_name (backend field) and executiveName (frontend field)
+  const executiveCode = candidate.executive_name || candidate.executiveName;
+  
+  // Priority 1: Use new enhanced employee details from bulk_fetch API
+  if (candidate.executive_employee?.fullName) {
+    return candidate.executive_employee.fullName;
+  }
+  
+  // Priority 2: Use enhanced executive_display from backend (now returns full name only)
+  if (candidate.executive_display) {
+    return candidate.executive_display;
+  }
+
+  // Fallback: Return the executive code
+  return executiveCode || "-";
+};
+
+// Function to get row background color based on remarks
+const getRowBackgroundColor = (candidate) => {
+  return 'hover:bg-gray-50';
+};
+
+// Function to check if candidate is assignable
+const isAssignable = (candidate) => {
+  const clientJob = candidate.selectedClientJob;
+  
+  // Use backend boolean field if available
+  if (typeof clientJob?.is_open_profile === 'boolean') {
+    return clientJob.is_open_profile;
+  }
+  
+  // Use backend can_assign field if available
+  if (typeof clientJob?.can_assign === 'boolean') {
+    return clientJob.can_assign;
+  }
+  
+  // Fallback logic
+  const remarks = clientJob?.remarks?.toLowerCase() || '';
+  if (remarks.includes('open profile') || remarks.includes('open-profile')) {
+    return true;
+  }
+  
+  const nfdDate = clientJob?.next_follow_up_date;
+  if (!nfdDate || nfdDate === '-' || nfdDate.trim() === '') {
+    return true;
+  }
+  
+  try {
+    const currentDate = new Date();
+    const nfdDateObj = new Date(nfdDate);
+    
+    // Set both dates to start of day for accurate comparison
+    currentDate.setHours(0, 0, 0, 0);
+    nfdDateObj.setHours(0, 0, 0, 0);
+    
+    // If NFD date is today or in the past, it's assignable
+    if (currentDate >= nfdDateObj) {
+      return true;
+    }
+  } catch (error) {
+    // Error parsing NFD date
+  }
+  
+  return false;
+};
+
+// Function to get latest feedback data
+const getLatestFeedbackData = (clientJob, field) => {
+  if (!clientJob) return null;
+  
+  // Direct field access for the specific field
+  switch (field) {
+    case 'remarks':
+      return clientJob.remarks;
+    case 'nfd':
+      return clientJob.next_follow_up_date;
+    case 'ejd':
+      return clientJob.expected_joining_date;
+    case 'ifd':
+      return clientJob.interview_date || clientJob.interview_fixed_date; // Try both field names
+    default:
+      return null;
+  }
+};
+
+// Function to format CTC in Indian comma format
+const formatCTC = (ctc) => {
+  if (!ctc || ctc === '-' || ctc === 'null' || ctc === null) return '-';
+  
+  const numericCTC = parseFloat(ctc);
+  if (isNaN(numericCTC)) return ctc;
+  
+  // Format number with Indian comma system (1,23,45,678)
+  return numericCTC.toLocaleString('en-IN');
+};
+
+const maskPhoneNumber = (number) => {
+  if (!number) return number;
+  const s = String(number).replace(/\D/g, '');
+  if (s.length < 6) return number;
+  return s.replace(/(\d{2})\d+(\d{2})$/, (m, a, b) => `${a}${'x'.repeat(s.length - 4)}${b}`);
+};
+
+const hasValidOldJoiningDate = (mobileNumber, globalJoiningDates) => {
+  const dates = globalJoiningDates && globalJoiningDates.get(mobileNumber);
+  if (!mobileNumber || !dates || dates.length === 0) return false;
+  try {
+    const today = new Date();
+    return dates.some(d => {
+      if (!d || d === '0000-00-00') return false;
+      const jd = new Date(d);
+      const diff = Math.floor((today - jd) / (1000 * 60 * 60 * 24));
+      return diff >= 100;
+    });
+  } catch {
+    return false;
+  }
+};
+
+const shouldMaskMobile = (candidaterevenue) => {
+  try {
+    const joiningDate = candidaterevenue?.[0]?.joining_date;
+    if (!joiningDate || joiningDate === '0000-00-00') return false;
+    const today = new Date();
+    const joinDate = new Date(joiningDate);
+    const daysDiff = Math.floor((today - joinDate) / (1000 * 60 * 60 * 24));
+    return daysDiff < 100;
+  } catch {
+    return false;
+  }
+};
+
+const isMobileNumberTaken = (mobileNumber, joinedMobiles) => {
+  if (!mobileNumber || !joinedMobiles) return false;
+  return joinedMobiles.has(mobileNumber);
+};
+
+const getDisplayMobileNumber = (phoneNumber, joinedMobiles, candidaterevenue, globalJoiningDates) => {
+  if (!phoneNumber) return phoneNumber;
+  const byDate = shouldMaskMobile(candidaterevenue);
+  const hasOld = hasValidOldJoiningDate(phoneNumber, globalJoiningDates);
+  const taken = isMobileNumberTaken(phoneNumber, joinedMobiles);
+  let shouldMask;
+  if (hasOld) {
+    shouldMask = false;
+  } else if (byDate) {
+    shouldMask = true;
+  } else if (taken) {
+    shouldMask = true;
+  } else {
+    shouldMask = false;
+  }
+  if (shouldMask) return maskPhoneNumber(phoneNumber);
+  return phoneNumber;
+};
+
+const getJoinedOrSelectedMobileNumbers = (results) => {
+  const set = new Set();
+  if (!Array.isArray(results)) return set;
+  results.forEach(c => {
+    const m1 = c.contactNumber1 || c.mobile1 || c.phone_number || c.phoneNumber;
+    const m2 = c.contactNumber2 || c.mobile2;
+    const statusRaw = c.selectedClientJob?.profilestatus || c.selectedClientJob?.remarks || c.remarks || '';
+    const status = String(statusRaw).toLowerCase();
+    if (status === 'joined') {
+      if (m1 && typeof m1 === 'string' && m1.trim() && m1 !== '-' && m1.toLowerCase() !== 'null' && m1.toLowerCase() !== 'nil') set.add(m1);
+      if (m2 && typeof m2 === 'string' && m2.trim() && m2 !== '-' && m2.toLowerCase() !== 'null' && m2.toLowerCase() !== 'nil') set.add(m2);
+    }
+  });
+  return set;
+};
+
+const getGlobalJoiningDates = (results) => {
+  const map = new Map();
+  if (!Array.isArray(results)) return map;
+  results.forEach(c => {
+    const join = c?.candidaterevenue?.[0]?.joining_date || c?.backendData?.candidaterevenue?.[0]?.joining_date || c?.originalCandidate?.candidaterevenue?.[0]?.joining_date;
+    const push = (num) => {
+      if (!num) return;
+      if (!map.has(num)) map.set(num, []);
+      if (join && join !== '0000-00-00') map.get(num).push(join);
+    };
+    push(c.contactNumber1 || c.mobile1 || c.phone_number || c.phoneNumber);
+    push(c.contactNumber2 || c.mobile2);
+  });
+  return map;
+};
+
+const getPhoneHoverTitle = (phoneNumber, candidate, isMasked, joinedMobiles, globalJoiningDates, allResults) => {
+  if (!phoneNumber) return 'No phone number available';
+  let hoverTitle = 'Phone number';
+  let profileStatus = candidate?.selectedClientJob?.profilestatus || candidate?.selectedClientJob?.remarks || candidate?.remarks;
+  const candidaterevenue = candidate?.candidaterevenue || candidate?.backendData?.candidaterevenue || candidate?.originalCandidate?.candidaterevenue;
+  const joiningDate = candidaterevenue?.[0]?.joining_date;
+  const displayName = candidate?.candidateName || candidate?.candidate_name || candidate?.name || 'Candidate';
+  const clientName = candidate?.clientJob?.clientName || candidate?.selectedClientJob?.clientName || candidate?.client_name || 'Unknown Client';
+  const taken = isMobileNumberTaken(phoneNumber, joinedMobiles);
+  const safe = Array.isArray(allResults) ? allResults : [];
+  const hasAbscondGlobally = safe.some(c => (c.contactNumber1 === phoneNumber || c.contactNumber2 === phoneNumber) && (c.selectedClientJob?.profilestatus === 'Abscond' || String(c.selectedClientJob?.remarks).toLowerCase() === 'abscond'));
+  const isAbscond = String(profileStatus || '').toLowerCase() === 'abscond';
+  if (isMasked || isAbscond || taken || hasAbscondGlobally) {
+    if (String(profileStatus || '') === 'Joined' && joiningDate && joiningDate !== '0000-00-00') {
+      const d = new Date(joiningDate).toLocaleDateString('en-IN');
+      hoverTitle = isMasked ? `${displayName} joined on ${d} in ${clientName}, Don't contact them` : `${displayName} joined on ${d} in ${clientName}`;
+    } else if (String(profileStatus || '') === 'Abscond' && joiningDate && joiningDate !== '0000-00-00') {
+      const d = new Date(joiningDate).toLocaleDateString('en-IN');
+      hoverTitle = `${displayName} joined on ${d} in ${clientName} but absconded`;
+    } else if (taken || hasAbscondGlobally) {
+      const joinedCandidate = safe.find(c => (c.contactNumber1 === phoneNumber || c.contactNumber2 === phoneNumber) && (c.selectedClientJob?.profilestatus === 'Joined' || String(c.selectedClientJob?.remarks).toLowerCase() === 'joined'));
+      const abscondCandidate = safe.find(c => (c.contactNumber1 === phoneNumber || c.contactNumber2 === phoneNumber) && (c.selectedClientJob?.profilestatus === 'Abscond' || String(c.selectedClientJob?.remarks).toLowerCase() === 'abscond'));
+      if (joinedCandidate) {
+        const jr = joinedCandidate.candidaterevenue || joinedCandidate.backendData?.candidaterevenue || joinedCandidate.originalCandidate?.candidaterevenue;
+        const jd = jr?.[0]?.joining_date;
+        const jClient = joinedCandidate.clientJob?.clientName || joinedCandidate.selectedClientJob?.clientName || 'Unknown Client';
+        if (jd && jd !== '0000-00-00') {
+          const d = new Date(jd).toLocaleDateString('en-IN');
+          hoverTitle = `${displayName} joined on ${d} in ${jClient}, Don't contact them`;
+        } else {
+          hoverTitle = `${displayName} is joined/selected elsewhere, Don't contact them`;
+        }
+      } else if (abscondCandidate) {
+        const ar = abscondCandidate.candidaterevenue || abscondCandidate.backendData?.candidaterevenue || abscondCandidate.originalCandidate?.candidaterevenue;
+        const ad = ar?.[0]?.joining_date;
+        const aClient = abscondCandidate.clientJob?.clientName || abscondCandidate.selectedClientJob?.clientName || 'Unknown Client';
+        if (ad && ad !== '0000-00-00') {
+          const d = new Date(ad).toLocaleDateString('en-IN');
+          hoverTitle = `${displayName} joined on ${d} in ${aClient} but absconded`;
+        } else {
+          hoverTitle = `${displayName} absconded`;
+        }
+      } else {
+        hoverTitle = `${displayName} is joined/selected elsewhere`;
+      }
+    }
+  }
+  if (hoverTitle === 'Phone number') {
+    const hasGlobalOld = hasValidOldJoiningDate(phoneNumber, globalJoiningDates);
+    if (hasGlobalOld) hoverTitle = '100 days completed — full number visible';
+  }
+  return hoverTitle;
+};
+
+const CandidateTable = ({
+  candidates: propCandidates = [],
+  candidateIds = [], // Array of candidate IDs to fetch
+  employeeNames = {},
+  entriesPerPage = 10,
+  onCandidateNameClick,
+  onViewFeedback, // Prop for showing feedback modal
+  onAssign,
+  onView,
+  onRevenueUpdate,
+  showActions = true,
+  title = "Candidates",
+  fetchMode = "direct", // "ids", "direct", or "all"
+  filters = {}, // Additional filters for API calls
+  onDataUpdate = () => {}, // Callback when data is updated
+  emptyMessage = "No candidates found",
+  statsType = '', // Type of statistics (for context in new tab)
+  eventData = null, // Event data (for context in new tab)
+  showTransferDate = false, // Show transfer date instead of created/updated dates
+  showPreviousOwners = false,
+  initialSearchTerm = '' // Initial search term (e.g., user's name)
+}) => {
+  // State management for API integration
+  const [candidates, setCandidates] = useState(propCandidates);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
+  
+  // Search and pagination state - Initialize with initialSearchTerm
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(entriesPerPage);
+  const [openWhatsappFor, setOpenWhatsappFor] = useState(null);
+  const [waMenuPos, setWaMenuPos] = useState({ x: 0, y: 0 });
+
+  // ViewModal integration removed for calendar display
+  // const actions = useAppActions();
+  
+  // Handle view button click - simplified for calendar display
+  const handleViewCandidate = (candidate) => {
+    // For calendar display, call the feedback modal prop if provided
+    if (onViewFeedback) {
+      onViewFeedback(candidate);
+    } else if (onCandidateNameClick) {
+      onCandidateNameClick(candidate);
+    } else {
+      // Fallback: log candidate data for debugging
+      console.log('Candidate clicked:', candidate);
+      
+    }
+  };
+
+  // Function to open candidate table in new tab
+  const openInNewTab = (overrideStatsType = '', overrideEventData = null) => {
+    const finalStatsType = overrideStatsType || statsType;
+    const finalEventData = overrideEventData || eventData;
+    const reportData = {
+      candidates: candidates,
+      candidateIds: candidateIds,
+      title: title,
+      statsType: finalStatsType,
+      eventData: finalEventData,
+      timestamp: Date.now()
+    };
+    
+    try {
+      // Generate a unique key for this report session
+      const reportKey = `candidate_table_report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      sessionStorage.setItem(reportKey, JSON.stringify(reportData));
+      
+      // Clean up old report data (older than 1 hour) to prevent storage bloat
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith('candidate_table_report_')) {
+          try {
+            const data = JSON.parse(sessionStorage.getItem(key));
+            if (data.timestamp && (Date.now() - data.timestamp) > 3600000) { // 1 hour
+              sessionStorage.removeItem(key);
+            }
+          } catch (e) {
+            // Remove corrupted entries
+            sessionStorage.removeItem(key);
+          }
+        }
+      });
+      
+      // Pass only the key and basic info through URL
+      const params = new URLSearchParams({
+        title: title,
+        statsType: finalStatsType || '',
+        reportKey: reportKey
+      });
+      
+      const url = `/candidate-table-report?${params.toString()}`;
+      window.open(url, '_blank');
+      
+    } catch (error) {
+      toast.error('Unable to open report. Please try again.');
+    }
+  };
+
+  // Fetch candidates based on IDs
+  const fetchCandidatesByIds = async (ids) => {
+    if (!ids || ids.length === 0) {
+      setCandidates([]);
+      setTotalCount(0);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Filter out invalid IDs (0, null, undefined, empty strings)
+      const validIds = ids.filter(id => 
+        id !== null && 
+        id !== undefined && 
+        id !== '0' && 
+        id !== 0 && 
+        String(id).trim() !== '' && 
+        String(id).trim() !== 'null'
+      );
+      
+      if (validIds.length === 0) {
+        setCandidates([]);
+        setTotalCount(0);
+        setLoading(false);
+        return;
+      }
+
+      // Use bulk fetch API for better performance and error handling
+      const bulkResult = await candidatesAPI.bulkFetch(validIds, true);
+      
+      let validCandidates = bulkResult.found || [];
+      
+      // Check if client jobs are included in the response
+      const hasClientJobs = validCandidates.length > 0 && 
+        (validCandidates[0].client_jobs || validCandidates[0].clientJobs || validCandidates[0].client_job) &&
+        (validCandidates[0].client_jobs?.length > 0 || validCandidates[0].clientJobs?.length > 0 || validCandidates[0].client_job);
+      
+      if (!hasClientJobs && validCandidates.length > 0) {
+        // Set a flag to show user that client job data is missing
+        setError('Client job data not available - showing candidate information only');
+      } else if (hasClientJobs) {
+        // Clear any previous errors
+        setError(null);
+      }
+
+      // Transform the API response to match the expected table format
+      const transformedCandidates = transformCandidateData(validCandidates);
+      
+      setCandidates(transformedCandidates);
+      setTotalCount(transformedCandidates.length);
+      onDataUpdate(transformedCandidates, transformedCandidates.length);
+      
+    } catch (err) {
+      setError(err.message || 'Failed to fetch candidates');
+      setCandidates([]);
+      setTotalCount(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Transform candidate data to expected format
+  const transformCandidateData = (candidates) => {
+    return candidates.map(candidate => {
+      // Handle different client job data structures
+      let clientJobs = [];
+      
+      // Check for various client job data structures
+      if (candidate.client_jobs && Array.isArray(candidate.client_jobs)) {
+        clientJobs = candidate.client_jobs;
+      } else if (candidate.clientJobs && Array.isArray(candidate.clientJobs)) {
+        clientJobs = candidate.clientJobs;
+      } else if (candidate.client_job) {
+        clientJobs = [candidate.client_job];
+      } else if (candidate.clientJob) {
+        clientJobs = [candidate.clientJob];
+      }
+      
+      // Get the primary client job (first one or create default)
+      const primaryClientJob = clientJobs.length > 0 ? clientJobs[0] : null;
+      
+      // Create standardized client job object
+      const standardizedClientJob = {
+        id: primaryClientJob?.id || primaryClientJob?.client_job_id || null,
+        client_name: primaryClientJob?.client_name || primaryClientJob?.clientName || 'N/A',
+        clientName: primaryClientJob?.client_name || primaryClientJob?.clientName || 'N/A',
+        designation: primaryClientJob?.designation || 'N/A',
+        current_ctc: primaryClientJob?.current_ctc || primaryClientJob?.currentCtc || null,
+        currentCtc: primaryClientJob?.current_ctc || primaryClientJob?.currentCtc || null,
+        expected_ctc: primaryClientJob?.expected_ctc || primaryClientJob?.expectedCtc || null,
+        expectedCtc: primaryClientJob?.expected_ctc || primaryClientJob?.expectedCtc || null,
+        remarks: primaryClientJob?.remarks || 'No remarks available',
+        next_follow_up_date: primaryClientJob?.next_follow_up_date || primaryClientJob?.nextFollowUpDate || null,
+        nextFollowUpDate: primaryClientJob?.next_follow_up_date || primaryClientJob?.nextFollowUpDate || null,
+        expected_joining_date: primaryClientJob?.expected_joining_date || primaryClientJob?.expectedJoiningDate || null,
+        expectedJoiningDate: primaryClientJob?.expected_joining_date || primaryClientJob?.expectedJoiningDate || null,
+        interview_fixed_date: primaryClientJob?.interview_fixed_date || primaryClientJob?.interviewFixedDate || null,
+        interviewFixedDate: primaryClientJob?.interview_fixed_date || primaryClientJob?.interviewFixedDate || null,
+        // Assignment fields with enhanced employee details
+        assign_to: primaryClientJob?.assign_to || primaryClientJob?.assignTo || null,
+        assignTo: primaryClientJob?.assign_to || primaryClientJob?.assignTo || null,
+        assign_to_employee: primaryClientJob?.assign_to_employee || null, // Enhanced employee details
+        display_executive_name: primaryClientJob?.display_executive_name || primaryClientJob?.displayExecutiveName || null,
+        current_executive_name: primaryClientJob?.current_executive_name || primaryClientJob?.currentExecutiveName || null,
+        is_open_profile: primaryClientJob?.is_open_profile || primaryClientJob?.isOpenProfile || false,
+        can_assign: primaryClientJob?.can_assign || primaryClientJob?.canAssign || false
+      };
+
+      return {
+        ...candidate,
+        // Store both for compatibility
+        selectedClientJob: standardizedClientJob,
+        clientJob: standardizedClientJob,
+        client_jobs: clientJobs,
+        clientJobs: clientJobs,
+        
+        // Standardized candidate fields
+        candidateName: candidate.candidate_name || candidate.candidateName || 'Unknown',
+        candidate_name: candidate.candidate_name || candidate.candidateName || 'Unknown',
+        candidateId: candidate.candidate_id || candidate.id,
+        candidate_id: candidate.candidate_id || candidate.id,
+        phoneNumber: candidate.mobile1 || candidate.phone_number || candidate.phoneNumber,
+        phone_number: candidate.mobile1 || candidate.phone_number || candidate.phoneNumber,
+        contactNumber1: candidate.mobile1 || candidate.contactNumber1,
+        contactNumber2: candidate.mobile2 || candidate.contactNumber2,
+        mobile1: candidate.mobile1,
+        mobile2: candidate.mobile2,
+        email: candidate.email,
+        education: candidate.education,
+        experience: candidate.experience,
+        
+        // Enhanced Employee info from bulk_fetch API
+        employeeName: candidate.executive_employee?.fullName || candidate.executive_name || candidate.employeeName || 'Unknown Employee',
+        executive_name: candidate.executive_name || candidate.employeeName || 'Unknown Employee',
+        
+        // Preserve enhanced employee details from backend
+        executive_employee: candidate.executive_employee,
+        created_by_employee: candidate.created_by_employee,
+        updated_by_employee: candidate.updated_by_employee,
+        executive_display: candidate.executive_display,
+        
+        // Client info (direct access)
+        client_name: standardizedClientJob.client_name,
+        clientName: standardizedClientJob.clientName,
+        
+        // Source info
+        source_name: candidate.source || candidate.source_name || 'Unknown Source',
+        sourceName: candidate.source || candidate.source_name || 'Unknown Source',
+        source: candidate.source || candidate.source_name || 'Unknown Source',
+        
+        // Location info
+        city: candidate.city || candidate.location?.city || 'N/A',
+        state: candidate.state || candidate.location?.state || 'N/A',
+        address: candidate.address || candidate.location?.address || 'N/A',
+        location: candidate.location || `${candidate.city || 'N/A'}, ${candidate.state || 'N/A'}`,
+        cityState: `${candidate.city || 'N/A'}, ${candidate.state || 'N/A'}`,
+        
+        // Revenue info
+        revenue: candidate.revenue || 0,
+        
+        // Date info
+        candidateCreatedDate: candidate.created_at || candidate.candidateCreatedDate,
+        created_at: candidate.created_at || candidate.candidateCreatedDate,
+        
+        // Job-related fields (direct access for compatibility)
+        designation: standardizedClientJob.designation,
+        current_ctc: standardizedClientJob.current_ctc,
+        currentCTC: standardizedClientJob.currentCtc,
+        expected_ctc: standardizedClientJob.expected_ctc,
+        expectedCTC: standardizedClientJob.expectedCtc,
+        remarks: standardizedClientJob.remarks,
+        next_follow_up_date: standardizedClientJob.next_follow_up_date,
+        nextFollowUpDate: standardizedClientJob.nextFollowUpDate,
+        expected_joining_date: standardizedClientJob.expected_joining_date,
+        expectedJoiningDate: standardizedClientJob.expectedJoiningDate,
+        interview_fixed_date: standardizedClientJob.interview_fixed_date,
+        interviewFixedDate: standardizedClientJob.interviewFixedDate
+      };
+    });
+  };
+
+  // Fetch all candidates with filters
+  const fetchAllCandidates = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const fetchedCandidates = await candidatesAPI.getAllCandidatesProgressive(filters, (partialData, count) => {
+        const transformedData = transformCandidateData(partialData);
+        setCandidates(transformedData);
+        setTotalCount(count);
+        onDataUpdate(transformedData, count);
+      });
+
+      const transformedCandidates = transformCandidateData(fetchedCandidates);
+      setCandidates(transformedCandidates);
+      setTotalCount(transformedCandidates.length);
+      onDataUpdate(transformedCandidates, transformedCandidates.length);
+      
+    } catch (err) {
+      setError(err.message || 'Failed to fetch candidates');
+      setCandidates([]);
+      setTotalCount(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Effect to fetch data when component mounts or dependencies change
+  useEffect(() => {
+    if (fetchMode === "ids" && candidateIds && candidateIds.length > 0) {
+      fetchCandidatesByIds(candidateIds);
+    } else if (fetchMode === "all") {
+      fetchAllCandidates();
+    } else if (fetchMode === "direct") {
+      // Use provided candidates directly
+      setCandidates(propCandidates);
+      setTotalCount(propCandidates.length);
+      setLoading(false);
+    }
+  }, [candidateIds, fetchMode, JSON.stringify(filters)]);
+
+  // Update candidates when prop changes (for direct mode)
+  useEffect(() => {
+    if (fetchMode === "direct") {
+      setCandidates(propCandidates);
+      setTotalCount(propCandidates.length);
+      setLoading(false);
+    }
+  }, [propCandidates, fetchMode]);
+
+  useEffect(() => {
+    if (openWhatsappFor !== null) {
+      const onClick = () => setOpenWhatsappFor(null);
+      document.addEventListener('click', onClick);
+      return () => document.removeEventListener('click', onClick);
+    }
+  }, [openWhatsappFor]);
+
+  // Refresh function that can be called externally
+  const refreshData = () => {
+    if (fetchMode === "ids" && candidateIds && candidateIds.length > 0) {
+      fetchCandidatesByIds(candidateIds);
+    } else if (fetchMode === "all") {
+      fetchAllCandidates();
+    }
+  };
+
+  // Filter and sort candidates based on search term and remarks priority
+  const filteredCandidates = useMemo(() => {
+    const term = (searchTerm || '').trim().toLowerCase();
+    
+    // First, filter by search term
+    let filtered = term ? candidates.filter(candidate => {
+      return [
+        candidate.candidateName,
+        candidate.candidate_name,
+        candidate.contactNumber1,
+        candidate.contactNumber2,
+        candidate.phone_number,
+        candidate.phoneNumber,
+        candidate.mobile1,
+        candidate.mobile2,
+        candidate.email,
+        candidate.education,
+        candidate.experience,
+        candidate.city,
+        candidate.state,
+        candidate.address,
+        candidate.cityState,
+        candidate.location,
+        candidate.selectedClientJob?.clientName,
+        candidate.selectedClientJob?.client_name,
+        candidate.selectedClientJob?.designation,
+        candidate.selectedClientJob?.remarks,
+        candidate.client_name,
+        candidate.clientName,
+        candidate.designation,
+        candidate.remarks,
+        getDisplayExecutiveName(candidate, candidate.selectedClientJob, employeeNames)
+      ].some(field => field && String(field).toLowerCase().includes(term));
+    }) : candidates;
+    
+    // Then, sort by remarks priority: Joined first, then Abscond, then others
+    return [...filtered].sort((a, b) => {
+      const remarksA = (a.selectedClientJob?.remarks || a.remarks || '').toLowerCase();
+      const remarksB = (b.selectedClientJob?.remarks || b.remarks || '').toLowerCase();
+      
+      // Priority order: Joined (1), Abscond (2), Others (3)
+      const getPriority = (remarks) => {
+        if (remarks === 'joined') return 1;
+        if (remarks === 'abscond') return 2;
+        return 3;
+      };
+      
+      return getPriority(remarksA) - getPriority(remarksB);
+    });
+  }, [candidates, searchTerm, employeeNames]);
+  
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredCandidates.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredCandidates.length);
+  const paginatedCandidates = filteredCandidates.slice(startIndex, endIndex);
+  
+  const finalDisplayedCandidates = paginatedCandidates.map((candidate, index) => ({
+    ...candidate,
+    serialNo: startIndex + index + 1
+  }));
+
+  const joinedMobiles = useMemo(() => getJoinedOrSelectedMobileNumbers(candidates), [candidates]);
+  const globalJoiningDates = useMemo(() => getGlobalJoiningDates(candidates), [candidates]);
+  
+  // Handle search change
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setCurrentPage(1); // Reset to first page when searching
+  };
+
+
+  return (
+    <div 
+      className="bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col" 
+      style={paginatedCandidates.length > 5 ? { height: 'calc(100vh - 200px)' } : {}}
+    >
+      {/* Sticky Header - Page Size Selector */}
+      <div className="px-3 py-2 border-b border-gray-100 bg-white sticky top-0 z-10">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {/* Left: Show dropdown */}
+          <div className="flex items-center space-x-2">
+            <label className="text-xs font-medium text-gray-700">Show:</label>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1); // Reset to first page
+              }}
+              className="px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs"
+            >
+              <option value={10}>10 entries</option>
+              <option value={25}>25 entries</option>
+              <option value={50}>50 entries</option>
+              <option value={100}>100 entries</option>
+            </select>
+          </div>
+
+          {/* Center: Showing entries */}
+          <div className="text-xs text-gray-700 font-medium text-center">
+            Showing {filteredCandidates.length ? `${startIndex + 1}-${endIndex}` : '0-0'} of {filteredCandidates.length} entries
+            {searchTerm && (
+              <span className="ml-2 text-blue-600">
+                (filtered from {candidates.length} total)
+              </span>
+            )}
+          </div>
+
+          {/* Right: Search box */}
+          <div className="flex items-center space-x-2">
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search..."
+                className="pl-9 pr-3 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs w-48"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Warning Message for Missing Client Job Data */}
+      {error && error.includes('Client job data not available') && (
+        <div className="px-3 py-2 bg-yellow-50 border border-yellow-200">
+          <div className="flex items-center">
+            <AlertCircle className="w-4 h-4 text-yellow-600 mr-2" />
+            <span className="text-xs text-yellow-800">{error}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Scrollable Table Body */}
+      <div className="flex-1 overflow-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          {/* Table head */}
+          <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0 z-10">
+            <tr>
+              {/* Desktop Headers - Hidden in mobile */}
+              <th className="hidden md:table-cell px-1.5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                S.No
+              </th>
+              <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Executive Info
+              </th>
+              <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Candidate Info
+              </th>
+              <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Personal Info
+              </th>
+              <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Job Info
+              </th>
+              <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Remarks
+              </th>
+			  {showPreviousOwners && (
+                <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Transfer
+                </th>
+              )}
+              {showPreviousOwners && (
+                <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Attended
+                </th>
+              )}
+              {showActions && (
+                <th className="hidden md:table-cell px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Action
+                </th>
+              )}
+
+              {/* Mobile Headers - Only show in mobile */}
+              <th className="md:hidden px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                S.No
+              </th>
+              <th className="md:hidden px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Executive Name
+              </th>
+              <th className="md:hidden px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Candidate Details
+              </th>
+              {showActions && (
+                <th className="md:hidden px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              )}
+            </tr>
+          </thead>
+          {/* Table body */}
+          <tbody className="bg-white divide-y divide-gray-200 border border-gray-200">
+            {finalDisplayedCandidates.length > 0 ? (
+              finalDisplayedCandidates.map((candidate, index) => {
+                const remarksBackgroundColor = getRowBackgroundColor(candidate);
+                const recentlyUpdatedStyle = candidate.isRecentlyUpdated
+                  ? 'border-l-4 border-l-green-500 shadow-sm'
+                  : '';
+
+                return (
+                  <tr key={candidate.uniqueKey || candidate.id || `row-${index}`} className={`mb-2 transition-all duration-300 ${candidate.isRecentlyUpdated
+                      ? `bg-green-50 ${recentlyUpdatedStyle}`
+                      : remarksBackgroundColor || 'hover:bg-gray-50'
+                    }`}>
+                    {/* Desktop Row Data - Hidden in mobile */}
+                    <td className="hidden md:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-gray-200">
+                      <div className="flex items-center space-x-2">
+                        <span>{candidate.serialNo}</span>
+                        {candidate.isRecentlyUpdated && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 animate-pulse">
+                            UPDATED
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    {/* Executive Info - Desktop only */}
+                    <td className="hidden md:table-cell px-2 py-1">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <div className="rounded-full bg-gray-100 flex items-center justify-center text-gray-400 shadow-md border-2 border-gray-200">
+                            <User className="w-6 h-6" />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {(() => {
+						   // Prefer Previous Owners on Transfer tab
+                              if (showPreviousOwners) {
+                                const list = (Array.isArray(candidate.previousOwnerNames) && candidate.previousOwnerNames.length > 0)
+                                  ? candidate.previousOwnerNames
+                                  : (Array.isArray(candidate.previousOwners) ? candidate.previousOwners : []);
+                                if (list.length) {
+                                  return `Previous Owner: ${list.join(', ')}`;
+                                }
+                              }
+                              // Try multiple fallback options with better parsing
+                              if (candidate.executive_employee?.fullName) {
+                                return candidate.executive_employee.fullName;
+                              }
+                              
+                              // Use executive_display directly (now returns full name only)
+                              if (candidate.executive_display) {
+                                return candidate.executive_display;
+                              }
+                              
+                              // Check if executive_name contains actual name (not just code)
+                              const execName = candidate.executive_name || '';
+                              if (execName && !execName.match(/^(EMP|CBE|Emp\/)\d+/)) {
+                                // If it doesn't match employee code pattern, it's likely a name
+                                return execName;
+                              }
+                              
+                              // Fallback to executive code or N/A
+                              return execName || 'N/A';
+                            })()}
+                          </div>
+                          <div className="text-xs text-gray-500 space-y-0.5">
+                            {showTransferDate ? (
+                              <div>
+                                <span className="font-medium">Transfer Date: </span>
+                                <span className="text-gray-600">{formatDate(candidate.date_of_transfer) || 'N/A'}</span>
+                              </div>
+                            ) : (
+                              <>
+                                <div>
+                                  <span className="font-medium">Created: </span>
+                                  <span className="text-gray-600">{candidate.created_at || 'N/A'}</span>
+                                </div>
+                                <div>
+                                  <span className="font-medium">Updated: </span>
+                                  <span className="text-gray-600">{candidate.updated_at || 'N/A'}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    {/* Candidate Info - Desktop only */}
+                    <td className="hidden md:table-cell px-2 py-1">
+                      <div className="space-y-1 text-xs text-gray-700">
+                        <div
+                          className={`font-medium text-sm cursor-pointer hover:underline ${(() => {
+                            const remarks = (candidate.selectedClientJob?.effective_remark || candidate.selectedClientJob?.remarks || candidate.remarks || '').toLowerCase();
+                            const remarkSource = candidate.selectedClientJob?.remark_source;
+
+                            // Only apply special colors if remark comes from profilestatus
+                            if (remarkSource === 'profilestatus') {
+                              if (remarks === 'joined') return 'text-green-600 hover:text-green-800';
+                              if (remarks === 'abscond') return 'text-red-600 hover:text-red-800';
+                            }
+
+                            // Default blue for all other cases (remarks field or no special status)
+                            return 'text-blue-600 hover:text-blue-800';
+                          })()}`}
+                          onClick={() => handleViewCandidate(candidate)}
+                          title={(() => {
+                            const remarks = (candidate.selectedClientJob?.effective_remark || candidate.selectedClientJob?.remarks || candidate.remarks || '').toLowerCase();
+                            const remarkSource = candidate.selectedClientJob?.remark_source;
+                            const hasClaimedRevenue = candidate.backendData?.candidaterevenue?.some(rev => {
+                              return rev.revenue_status?.toLowerCase() === 'claimed';
+                            });
+
+                            // Show no title if conditions for $$$ are met, otherwise show default tooltip
+                            return (remarkSource === 'profilestatus' && remarks === 'joined' && hasClaimedRevenue)
+                              ? 'Cleared'
+                              : 'Click to view feedback and details';
+                          })()}
+                        >
+                          {displayValue(candidate.candidateName)}
+                          {(() => {
+                            const remarks = (candidate.selectedClientJob?.effective_remark || candidate.selectedClientJob?.remarks || candidate.remarks || '').toLowerCase();
+                            const remarkSource = candidate.selectedClientJob?.remark_source;
+
+                            // Check if status is 'joined' and revenue status is 'claimed'
+                            const hasClaimedRevenue = candidate.backendData?.candidaterevenue?.some(rev => {
+                              return rev.revenue_status?.toLowerCase() === 'claimed';
+                            });
+
+                            if (remarkSource === 'profilestatus' && remarks === 'joined' && hasClaimedRevenue) {
+                              return (
+                                <span className="inline-flex items-center ml-1">
+                                  {[...Array(3)].map((_, i) => (
+                                    <img
+                                      key={i}
+                                      src="/money.png"
+                                      alt="Cash"
+                                      className="w-5 h-5"
+                                      style={{ display: 'inline-block' }}
+                                    />
+                                  ))}
+                                </span>
+                              );
+                            }
+                            return '';
+                          })()}
+                        </div>
+                        <div className="flex items-center gap-1 relative">
+                          {(() => {
+                            const id = candidate.candidateId || candidate.id;
+                            const open = openWhatsappFor === id;
+                            return (
+                              <button
+                                className="inline-flex items-center justify-center w-5 h-5 mr-1 rounded hover:bg-gray-100"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (open) { setOpenWhatsappFor(null); return; }
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setWaMenuPos({ x: rect.left, y: rect.bottom });
+                                  setOpenWhatsappFor(id);
+                                }}
+                                title={(() => {
+                                  const phone1 = candidate.contactNumber1 || candidate.mobile1 || candidate.phone_number || candidate.phoneNumber;
+                                  const cr = candidate.candidaterevenue || candidate.backendData?.candidaterevenue || candidate.originalCandidate?.candidaterevenue;
+                                  const d1 = getDisplayMobileNumber(phone1, joinedMobiles, cr, globalJoiningDates);
+                                  const m1 = d1?.includes('x') || false;
+                                  return getPhoneHoverTitle(phone1, candidate, m1, joinedMobiles, globalJoiningDates, candidates);
+                                })()}
+                              >
+                                <Phone className="w-3.5 h-3.5 text-gray-500" />
+                              </button>
+                            );
+                          })()}
+                          {(() => {
+                            const phone1 = candidate.contactNumber1 || candidate.mobile1 || candidate.phone_number || candidate.phoneNumber;
+                            const cr = candidate.candidaterevenue || candidate.backendData?.candidaterevenue || candidate.originalCandidate?.candidaterevenue;
+                            const displayPhone1 = getDisplayMobileNumber(phone1, joinedMobiles, cr, globalJoiningDates);
+                            const isValid1 = phone1 && phone1 !== '-' && typeof phone1 === 'string' && phone1.toLowerCase() !== 'null' && phone1.toLowerCase() !== 'nill' && phone1.toLowerCase() !== 'nil' && phone1.trim() !== '';
+                            const isMasked1 = displayPhone1?.includes('x') || false;
+                            const hover1 = getPhoneHoverTitle(phone1, candidate, isMasked1, joinedMobiles, globalJoiningDates, candidates);
+                            return isValid1 ? (
+                              <span className={`${isMasked1 ? 'text-gray-400' : ''}`} title={hover1}>{displayValue(displayPhone1)}</span>
+                            ) : (
+                              <span className="text-gray-700" title={hover1}>{displayValue(displayPhone1)}</span>
+                            );
+                          })()}
+                          {(() => {
+                            const phone2 = candidate.contactNumber2 || candidate.mobile2;
+                            const cr = candidate.candidaterevenue || candidate.backendData?.candidaterevenue || candidate.originalCandidate?.candidaterevenue;
+                            const displayPhone2 = getDisplayMobileNumber(phone2, joinedMobiles, cr, globalJoiningDates);
+                            const isValid2 = phone2 && phone2 !== '-' && typeof phone2 === 'string' && phone2.toLowerCase() !== 'null' && phone2.toLowerCase() !== 'nill' && phone2.toLowerCase() !== 'nil' && phone2.trim() !== '';
+                            const isMasked2 = displayPhone2?.includes('x') || false;
+                            const hover2 = getPhoneHoverTitle(phone2, candidate, isMasked2, joinedMobiles, globalJoiningDates, candidates);
+                            return isValid2 ? (
+                              <>
+                                <span className="text-gray-400"> / </span>
+                                <span className={`${isMasked2 ? 'text-gray-400' : ''}`} title={hover2}>{displayValue(displayPhone2)}</span>
+                              </>
+                            ) : null;
+                          })()}
+                          {(() => {
+                            const id = candidate.candidateId || candidate.id;
+                            const phone1 = candidate.contactNumber1 || candidate.mobile1 || candidate.phone_number || candidate.phoneNumber;
+                            const phone2 = candidate.contactNumber2 || candidate.mobile2;
+                            const cr = candidate.candidaterevenue || candidate.backendData?.candidaterevenue || candidate.originalCandidate?.candidaterevenue;
+                            const d1 = getDisplayMobileNumber(phone1, joinedMobiles, cr, globalJoiningDates);
+                            const d2 = getDisplayMobileNumber(phone2, joinedMobiles, cr, globalJoiningDates);
+                            const v1 = phone1 && phone1 !== '-' && typeof phone1 === 'string' && phone1.toLowerCase() !== 'null' && phone1.toLowerCase() !== 'nill' && phone1.toLowerCase() !== 'nil' && phone1.trim() !== '';
+                            const v2 = phone2 && phone2 !== '-' && typeof phone2 === 'string' && phone2.toLowerCase() !== 'null' && phone2.toLowerCase() !== 'nill' && phone2.toLowerCase() !== 'nil' && phone2.trim() !== '';
+                            const m1 = d1?.includes('x') || false;
+                            const m2 = d2?.includes('x') || false;
+                            const open = openWhatsappFor === id;
+                            if (!open) return null;
+                            return (
+                              <div className="fixed z-50 bg-white border border-gray-200 rounded shadow-md py-1 text-xs" style={{ left: waMenuPos.x, top: waMenuPos.y }}>
+                                {v1 ? (
+                                  <div
+                                    className={`${m1 ? 'text-gray-400 cursor-not-allowed px-3 py-1' : 'px-3 py-1 hover:bg-gray-50 cursor-pointer text-green-600'}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (m1) { toast.error('Cannot open WhatsApp for masked number'); return; }
+                                      const num = (phone1 || '').replace(/\D/g, '');
+                                      if (!num) { toast.error('Invalid number'); return; }
+                                      window.open(`https://wa.me/91${num}`, '_blank');
+                                      setOpenWhatsappFor(null);
+                                    }}
+                                  >
+                                    {`P1:${m1 ? d1 : (phone1 || '').replace(/\D/g, '')}`}
+                                  </div>
+                                ) : null}
+                                {v2 ? (
+                                  <div
+                                    className={`${m2 ? 'text-gray-400 cursor-not-allowed px-3 py-1' : 'px-3 py-1 hover:bg-gray-50 cursor-pointer text-green-600'}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (m2) { toast.error('Cannot open WhatsApp for masked number'); return; }
+                                      const num = (phone2 || '').replace(/\D/g, '');
+                                      if (!num) { toast.error('Invalid number'); return; }
+                                      window.open(`https://wa.me/91${num}`, '_blank');
+                                      setOpenWhatsappFor(null);
+                                    }}
+                                  >
+                                    {`P2: ${m2 ? d2 : (phone2 || '').replace(/\D/g, '')}`}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                        <div className="truncate max-w-[180px] flex items-center">
+                          <Mail className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                          {displayValue(candidate.email)}
+                        </div>
+                      </div>
+                    </td>
+                    {/* Personal Info - Desktop only */}
+                    <td className="hidden md:table-cell px-4 py-1 text-xs text-gray-700">
+                      <div className="space-y-1">
+                        <div>
+                          <strong>Education:</strong> {displayValue(candidate.education)}
+                        </div>
+                        <div>
+                          <strong>Experience:</strong> {displayValue(candidate.experience)}
+                        </div>
+                        <div>
+                          <strong>Location:</strong> {displayValue(candidate.cityState)}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Job Info - Desktop only */}
+                    <td className="hidden md:table-cell px-4 py-1 text-xs text-gray-700">
+                      <div className="space-y-1">
+                        <div>
+                          <strong>Client:</strong> {displayValue(candidate.selectedClientJob?.client_name || candidate.selectedClientJob?.clientName || candidate.client_name)}
+                        </div>
+                        <div>
+                          <strong>Designation:</strong> {displayValue(candidate.selectedClientJob?.designation || candidate.designation)}
+                        </div>
+                        <div>
+                          <strong>C-CTC:</strong> {formatCTC(candidate.selectedClientJob?.current_ctc || candidate.current_ctc)} &nbsp;&nbsp;
+                          <strong>E-CTC:</strong> {formatCTC(candidate.selectedClientJob?.expected_ctc || candidate.expected_ctc)}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Remarks - Current Status - Desktop only */}
+                    <td className="hidden md:table-cell px-4 py-1 text-xs text-gray-700">
+                      <div className="space-y-1">
+                        {(() => {
+                          // Get client job for this row
+                          const clientJob = candidate.selectedClientJob;
+
+                          // Extract latest feedback data from client job
+                          const latestRemarks = getLatestFeedbackData(clientJob, 'remarks');
+                          const latestNfdDate = getLatestFeedbackData(clientJob, 'nfd');
+                          const latestEjdDate = getLatestFeedbackData(clientJob, 'ejd');
+                          const latestIfdDate = getLatestFeedbackData(clientJob, 'ifd');
+                          const profileStatus = clientJob?.profilestatus;
+                          const effectiveRemarkValue = clientJob?.effective_remark || latestRemarks || clientJob?.remarks || '';
+                          const remarkSource = clientJob?.remark_source;
+                          const hideDatesForFinalStatus = profileStatus === 'Joined' || profileStatus === 'Abscond';
+
+                          return (
+                            <>
+                              {/* Current Status from Remarks Field */}
+                              <div className="flex items-center gap-2">
+                                <strong>Remarks:</strong> 
+                                <span className={(() => {
+                                  const er = (effectiveRemarkValue || '').toLowerCase();
+                                  // Prefer profilestatus-based effective remark when available
+                                  if (remarkSource === 'profilestatus') {
+                                    if (er === 'joined') return 'text-green-600 font-semibold';
+                                    if (er === 'abscond') return 'text-red-600 font-semibold';
+                                  }
+                                  const remarks = (clientJob?.remarks || '').toLowerCase();
+                                  if (remarks === 'joined') return 'text-green-600 font-semibold';
+                                  if (remarks === 'abscond') return 'text-red-600 font-semibold';
+                                  if (isAssignable(candidate)) return 'text-green-600 font-semibold';
+                                  return 'text-gray-700';
+                                })()}>
+                                  {clientJob?.effective_remark || clientJob?.remarks || 'No remarks'}
+                                </span>
+                              </div>
+                              
+                              {/* NFD from Database - Show "Open Profile" if null or contains (open profile) */}
+                              {(() => {
+                                // Use actual database field instead of feedback parsing
+                                if (hideDatesForFinalStatus) {
+                                  return null;
+                                }
+                                const nfdDate = clientJob?.next_follow_up_date;
+                                
+                                // Show "Open Profile" when NFD is null/empty or contains (open profile)
+                                if (!nfdDate || nfdDate === '-' || nfdDate.trim() === '' || 
+                                    (typeof nfdDate === 'string' && nfdDate.includes('(open profile)'))) {
+                                  // Extract the date part if it exists
+                                  let datePart = '';
+                                  if (nfdDate && nfdDate !== '-' && nfdDate.trim() !== '') {
+                                    try {
+                                      // Try to extract and format the date part
+                                      const [year, month, day] = nfdDate.split(' ')[0].split('-');
+                                      if (year && month && day) {
+                                        datePart = `${day}/${month}/${year} `;
+                                      }
+                                    } catch (e) {
+                                      console.error('Error formatting NFD date:', e);
+                                    }
+                                  }
+                                  
+                                  return (
+                                    <div>
+                                      <strong>NFD: </strong> 
+                                      <span className="text-orange-600 font-semibold">
+                                        {datePart}(open profile)
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                                
+                                // Check if NFD has expired (for visual indication)
+                                const isNfdExpired = (() => {
+                                  try {
+                                    const currentDate = new Date();
+                                    currentDate.setHours(0, 0, 0, 0); // Reset to start of day
+                                    
+                                    // Parse dd-mm-yyyy format correctly
+                                    let nfdDateObj;
+                                    if (typeof nfdDate === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(nfdDate)) {
+                                      const [day, month, year] = nfdDate.split('-');
+                                      nfdDateObj = new Date(year, month - 1, day);
+                                    } else {
+                                      nfdDateObj = new Date(nfdDate);
+                                    }
+                                    
+                                    const nfdExpiryDate = new Date(nfdDateObj);
+                                    nfdExpiryDate.setDate(nfdExpiryDate.getDate() + 1);
+                                    nfdExpiryDate.setHours(0, 0, 0, 0); // Reset to start of day
+                                    
+                                    return currentDate > nfdExpiryDate;
+                                  } catch {
+                                    return false;
+                                  }
+                                })();
+                                
+                                return (
+                                  <div>
+                                    <strong>NFD:</strong> 
+                                    <span className={isNfdExpired ? 'text-orange-600 font-semibold' : 'text-blue-600 font-semibold'}>
+                                      {(() => {
+                                        // Check if date is already in dd-mm-yyyy format from backend
+                                        if (typeof nfdDate === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(nfdDate)) {
+                                          return isNfdExpired ? `${nfdDate} (Open Profile)` : nfdDate;
+                                        }
+                                        // Otherwise, try to parse and format
+                                        try {
+                                          const formattedDate = new Date(nfdDate).toLocaleDateString('en-IN');
+                                          return isNfdExpired ? `${formattedDate} (Open Profile)` : formattedDate;
+                                        } catch {
+                                          return nfdDate; // Fallback if date parsing fails
+                                        }
+                                      })()}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
+                              {/* Interview Fixed Date (IFD) from Client Job Feedback (SearchView style) */}
+                              {!hideDatesForFinalStatus && ((latestIfdDate && latestIfdDate !== '-') || (clientJob?.interview_fixed_date && clientJob.interview_fixed_date !== '-')) ? (
+                                <div>
+                                  <strong>IFD:</strong> {(() => {
+                                    const ifdDate = latestIfdDate || clientJob?.interview_fixed_date;
+                                    // Check if date is already in dd-mm-yyyy format from backend
+                                    if (typeof ifdDate === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(ifdDate)) {
+                                      return ifdDate;
+                                    }
+                                    // Otherwise, try to parse and format
+                                    try {
+                                      return new Date(ifdDate).toLocaleDateString('en-IN');
+                                    } catch {
+                                      return ifdDate;
+                                    }
+                                  })()}
+                                </div>
+                              ) : null}
+                              {/* Expected Joining Date (EJD) from Client Job Feedback (SearchView style) */}
+                              {!hideDatesForFinalStatus && ((latestEjdDate && latestEjdDate !== '-') || (clientJob?.expected_joining_date && clientJob.expected_joining_date !== '-')) ? (
+                                <div>
+                                  <strong>EJD:</strong> {(() => {
+                                    const ejdDate = latestEjdDate || clientJob?.expected_joining_date;
+                                    // Check if date is already in dd-mm-yyyy format from backend
+                                    if (typeof ejdDate === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(ejdDate)) {
+                                      return ejdDate;
+                                    }
+                                    // Otherwise, try to parse and format
+                                    try {
+                                      return new Date(ejdDate).toLocaleDateString('en-IN');
+                                    } catch {
+                                      return ejdDate;
+                                    }
+                                  })()}
+                                </div>
+                              ) : null}
+
+                              {/* Source of Candidate */}
+                              <div>
+                                <strong>Source:</strong>
+                                <span className="text-gray-700">
+                                  {(() => {
+                                    const source = candidate.originalCandidate?.source ||
+                                      candidate.originalCandidate?.source_of_candidate ||
+                                      candidate.source_of_candidate || 
+                                      candidate.source || 
+                                      candidate.source_name ||
+                                      candidate.selectedClientJob?.source_of_candidate;
+                                    
+                                    if (source && source !== '-' && source.trim() !== '' && source !== 'Unknown Source') {
+                                      return source;
+                                    }
+                                    return 'N/A';
+                                  })()}
+                                </span>
+                              </div>
+                              
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </td>
+
+					{/* Transfer Mapping - Desktop only (Transfer tab only) */}
+                    {showPreviousOwners && (
+                      <td className="hidden md:table-cell px-4 py-1 text-xs text-gray-700">
+                        <div className="space-y-1">
+                          {(() => {
+                            const fromDisp = candidate.transferFromName || candidate.transferFromCode || '-';
+                            const toDisp = candidate.transferToName || candidate.transferToCode || '-';
+                            const text = fromDisp && toDisp ? `${fromDisp} to ${toDisp}` : '-';
+                            return (
+                              <div>
+                                <strong>Transfer:</strong> <span className="text-gray-700">{text}</span>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Attended Flag - Desktop only (Transfer tab only) */}
+                    {showPreviousOwners && (
+                      <td className="hidden md:table-cell px-4 py-1 text-xs text-gray-700">
+                        <div className="space-y-1">
+                          <div>
+                            <strong>Attended:</strong> <span className={candidate.attendFlag ? 'text-green-700' : 'text-gray-700'}>{
+                              typeof candidate.attendFlag === 'boolean' ? (candidate.attendFlag ? 'Yes' : 'No') : '-'
+                            }</span>
+                          </div>
+                        </div>
+                      </td>
+                    )}
+                    {/* Action Buttons - Desktop only */}
+                    {showActions && (
+                      <td className="hidden md:table-cell px-2 py-1 text-center">
+                        <div className="flex justify-center space-x-1">
+                          {/* View Button - Opens in new tab */}
+                          <Link
+                            to={`/view-candidate/${candidate.candidateId || candidate.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1 rounded-full hover:bg-blue-100/50 group transition-all duration-300 inline-flex items-center"
+                            title="View Full Details (Opens in new tab)"
+                          >
+                            <Eye className="w-4 h-4 text-blue-600 group-hover:text-blue-700 group-hover:scale-110" />
+                          </Link>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Mobile Row Data - Only show in mobile */}
+                    <td className="md:hidden px-3 py-1 whitespace-nowrap text-xs text-gray-900 font-medium">
+                      {candidate.serialNo}
+                    </td>
+
+                    <td className="md:hidden px-2 py-1">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-6 h-6 bg-gradient-to-r from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-medium text-xs">
+                          {(() => {
+                            const execName = candidate.executive_name || candidate.executiveName || '';
+                            return execName ? execName.split(' ').map(n => n[0]).join('').substring(0, 2) : 'EX';
+                          })()}
+                        </div>
+                        <div className="text-xs font-medium text-gray-900">
+                          {candidate.executive_display || candidate.executive_name || candidate.executiveName || '-'}
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="md:hidden px-2 py-1">
+                      <div className="space-y-1 text-xs text-gray-700">
+                        <div
+                          className={`font-medium cursor-pointer hover:underline transition-colors duration-200 ${
+                            (() => {
+                              const remarks = (candidate.selectedClientJob?.remarks || candidate.remarks || '').toLowerCase();
+                              if (remarks === 'joined') return 'text-green-600 hover:text-green-800';
+                              if (remarks === 'abscond') return 'text-red-600 hover:text-red-800';
+                              return 'text-blue-600 hover:text-blue-800';
+                            })()
+                          }`}
+                          onClick={() => handleViewCandidate(candidate)}
+                          title="Click to view details"
+                        >
+                          {candidate.candidateName}
+                        </div>
+                        <div className="flex items-center">
+                          <Users className="inline-block w-3 h-3 mr-1 text-gray-400" />
+                          {candidate.candidateId || candidate.id}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {candidate.selectedClientJob?.client_name || candidate.client_name || '-'} • {candidate.created_at || candidate.dateOfEntry || '-'}
+                        </div>
+                      </div>
+                    </td>
+
+                    {showActions && (
+                      <td className="md:hidden px-2 py-1 text-center">
+                        <Link
+                          to={`/view-candidate/${candidate.candidateId || candidate.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4 text-blue-600" />
+                        </Link>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={6 + (showPreviousOwners ? 2 : 0) + (showActions ? 1 : 0)} className="px-4 py-4 text-center text-sm text-gray-500">
+                  {loading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                      Loading candidates...
+                    </div>
+                  ) : error ? (
+                    <div className="text-red-500">
+                      {error}
+                    </div>
+                  ) : searchTerm ? (
+                    `No candidates found matching "${searchTerm}"`
+                  ) : (
+                    emptyMessage
+                  )}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      
+      
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-gray-200 bg-white px-3 py-2">
+          <div className="flex flex-1 justify-between sm:hidden">
+            <button
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+              className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+
+          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs text-gray-600">
+                Showing{' '}
+                <span className="font-medium text-gray-900">
+                  {(currentPage - 1) * itemsPerPage + 1}
+                </span>{' '}
+                to{' '}
+                <span className="font-medium text-gray-900">
+                  {Math.min(currentPage * itemsPerPage, filteredCandidates.length)}
+                </span>{' '}
+                of <span className="font-medium text-gray-900">{filteredCandidates.length}</span>{' '}
+                results
+              </p>
+            </div>
+            <div>
+              <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center rounded-l-md px-1.5 py-1.5 text-gray-400 ring-1 ring-gray-300 ring-inset hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  <ChevronLeft className="h-3.5 w-3.5 -ml-1.5" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center px-1.5 py-1.5 text-gray-400 ring-1 ring-gray-300 ring-inset hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+
+                {(() => {
+                  const pages = [];
+                  const siblings = 1;
+                  const showLeftEllipsis = currentPage > siblings + 2;
+                  const showRightEllipsis = currentPage < totalPages - (siblings + 1);
+                  const startPage = Math.max(2, currentPage - siblings);
+                  const endPage = Math.min(totalPages - 1, currentPage + siblings);
+
+                  pages.push(
+                    <button
+                      key={1}
+                      onClick={() => setCurrentPage(1)}
+                      className={`relative inline-flex items-center px-3 py-1.5 text-xs font-medium ${currentPage === 1
+                        ? 'z-10 bg-blue-600 text-white'
+                        : 'text-gray-700 ring-1 ring-gray-300 ring-inset hover:bg-gray-50'
+                        }`}
+                    >
+                      1
+                    </button>
+                  );
+
+                  if (showLeftEllipsis) {
+                    pages.push(
+                      <span
+                        key="left-ellipsis"
+                        className="relative inline-flex items-center px-3 py-1.5 text-xs text-gray-700 ring-1 ring-gray-300 ring-inset"
+                      >
+                        ...
+                      </span>
+                    );
+                  }
+
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i)}
+                        className={`relative inline-flex items-center px-3 py-1.5 text-xs font-medium ${i === currentPage
+                          ? 'z-10 bg-blue-600 text-white'
+                          : 'text-gray-700 ring-1 ring-gray-300 ring-inset hover:bg-gray-50'
+                          }`}
+                      >
+                        {i}
+                      </button>
+                    );
+                  }
+
+                  if (showRightEllipsis) {
+                    pages.push(
+                      <span
+                        key="right-ellipsis"
+                        className="relative inline-flex items-center px-3 py-1.5 text-xs text-gray-700 ring-1 ring-gray-300 ring-inset"
+                      >
+                        ...
+                      </span>
+                    );
+                  }
+
+                  if (totalPages > 1) {
+                    pages.push(
+                      <button
+                        key={totalPages}
+                        onClick={() => setCurrentPage(totalPages)}
+                        className={`relative inline-flex items-center px-3 py-1.5 text-xs font-medium ${currentPage === totalPages
+                          ? 'z-10 bg-blue-600 text-white'
+                          : 'text-gray-700 ring-1 ring-gray-300 ring-inset hover:bg-gray-50'
+                          }`}
+                      >
+                        {totalPages}
+                      </button>
+                    );
+                  }
+
+                  return pages;
+                })()}
+
+                <button
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="relative inline-flex items-center px-1.5 py-1.5 text-gray-400 ring-1 ring-gray-300 ring-inset hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="relative inline-flex items-center rounded-r-md px-1.5 py-1.5 text-gray-400 ring-1 ring-gray-300 ring-inset hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                  <ChevronRight className="h-3.5 w-3.5 -ml-1.5" />
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ViewModal removed for calendar display */}
+      {/* <ViewModal /> */}
+    </div>
+  );
+};
+
+// Additional API utility functions for the component
+export const candidateTableAPI = {
+  // Fetch candidates by specific IDs
+  fetchByIds: async (ids, filters = {}) => {
+    try {
+      return await candidatesAPI.getAllCandidatesProgressive({
+        ids: Array.isArray(ids) ? ids.join(',') : ids,
+        ...filters
+      });
+    } catch (error) {
+      console.error('Error fetching candidates by IDs:', error);
+      throw error;
+    }
+  },
+
+  // Fetch candidates with advanced filters
+  fetchWithFilters: async (filters = {}) => {
+    try {
+      return await candidatesAPI.getAllCandidatesProgressive(filters);
+    } catch (error) {
+      console.error('Error fetching candidates with filters:', error);
+      throw error;
+    }
+  },
+
+  // Fetch candidates for a specific client job
+  fetchForClientJob: async (clientJobId, filters = {}) => {
+    try {
+      return await candidatesAPI.getAllCandidatesProgressive({
+        client_job_id: clientJobId,
+        ...filters
+      });
+    } catch (error) {
+      console.error('Error fetching candidates for client job:', error);
+      throw error;
+    }
+  },
+
+  // Fetch candidates assigned to a specific executive
+  fetchForExecutive: async (executiveCode, filters = {}) => {
+    try {
+      return await candidatesAPI.getAllCandidatesProgressive({
+        executive_name: executiveCode,
+        ...filters
+      });
+    } catch (error) {
+      console.error('Error fetching candidates for executive:', error);
+      throw error;
+    }
+  },
+
+  // Fetch candidates with specific status
+  fetchByStatus: async (status, filters = {}) => {
+    try {
+      return await candidatesAPI.getAllCandidatesProgressive({
+        status: status,
+        ...filters
+      });
+    } catch (error) {
+      console.error('Error fetching candidates by status:', error);
+      throw error;
+    }
+  },
+
+  // Search candidates by name or phone
+  searchCandidates: async (searchTerm, filters = {}) => {
+    try {
+      return await candidatesAPI.getAllCandidatesProgressive({
+        search: searchTerm,
+        ...filters
+      });
+    } catch (error) {
+      console.error('Error searching candidates:', error);
+      throw error;
+    }
+  }
+};
+
+export default CandidateTable;
