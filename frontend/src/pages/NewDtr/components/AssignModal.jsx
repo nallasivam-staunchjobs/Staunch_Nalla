@@ -45,11 +45,21 @@ const AssignModal = ({ isOpen, onClose, candidate, onAssignmentSuccess }) => {
             const userInfo = await assignmentService.getCurrentUserInfo();
             setCurrentUser({
                 employeeCode: userInfo.employeeCode,
-                firstName: userInfo.firstName
+                firstName: userInfo.firstName,
+                userRole: userInfo.userRole
             });
-            console.log('✅ Current logged-in user set:', userInfo);
+            const isCEO = userInfo.userRole && (userInfo.userRole.toLowerCase() === 'ceo' || userInfo.userRole === 'L5');
+
+            if (!isCEO && userInfo.employeeCode) {
+                setAssignmentData(prev => ({
+                    ...prev,
+                    assignedTo: prev.assignedTo || userInfo.employeeCode
+                }));
+            }
+
+            console.log(' Current logged-in user set:', userInfo);
         } catch (error) {
-            console.error('❌ Failed to get current user info:', error);
+            console.error(' Failed to get current user info:', error);
             // Fallback - but this should be the actual logged-in user, not candidate's executive
             setCurrentUser({
                 employeeCode: 'UNKNOWN',
@@ -265,6 +275,15 @@ const AssignModal = ({ isOpen, onClose, candidate, onAssignmentSuccess }) => {
     if (isLoadingEmployees) {
         return null;
     }
+
+    const isCEO = currentUser?.userRole && (currentUser.userRole.toLowerCase() === 'ceo' || currentUser.userRole === 'L5');
+
+    const employeesForDropdown = !isCEO && currentUser?.employeeCode
+        ? availableEmployees.filter(employee =>
+            employee.employeeCode === currentUser.employeeCode ||
+            employee.value === currentUser.employeeCode
+        )
+        : availableEmployees;
 
     return (
         <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center z-50 p-2">
@@ -485,7 +504,7 @@ const AssignModal = ({ isOpen, onClose, candidate, onAssignmentSuccess }) => {
                                             <option value="">
                                                 {isLoadingEmployees ? 'Loading employees...' : 'Select team member...'}
                                             </option>
-                                            {availableEmployees.map((employee) => (
+                                            {employeesForDropdown.map((employee) => (
                                                 <option key={employee.uniqueKey || `${employee.id}-${employee.value}`} value={employee.value}>
                                                     {employee.firstName} ({employee.value}){employee.level && ` - ${employee.level}`}
                                                 </option>

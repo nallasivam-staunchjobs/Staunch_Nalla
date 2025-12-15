@@ -164,10 +164,16 @@ class Candidate(AuditFields):
     class Meta:
         indexes = [
             models.Index(fields=['-updated_at'], name='candidate_updated_at_idx'),
+            models.Index(fields=['-created_at'], name='candidate_created_at_idx'),
             models.Index(fields=['executive_name'], name='candidate_executive_idx'),
             models.Index(fields=['city'], name='candidate_city_idx'),
             models.Index(fields=['state'], name='candidate_state_idx'),
             models.Index(fields=['created_by'], name='candidate_created_by_idx'),
+            # Indexes to speed up exact-match candidate search
+            models.Index(fields=['candidate_name'], name='candidate_name_idx'),
+            models.Index(fields=['email'], name='candidate_email_idx'),
+            models.Index(fields=['mobile1'], name='candidate_mobile1_idx'),
+            models.Index(fields=['mobile2'], name='candidate_mobile2_idx'),
         ]
     
     def __str__(self):
@@ -203,6 +209,7 @@ class ClientJob(AuditFields):
     branch_id = models.IntegerField(blank=True, null=True)
     team_id = models.IntegerField(blank=True, null=True)
     employee_id = models.CharField(max_length=50, blank=True, null=True)
+    
     
     def _normalize_zero_dates(self):
         fields = ['next_follow_up_date', 'profile_submission_date', 'attend_date']
@@ -800,7 +807,26 @@ class ClientJob(AuditFields):
             # Don't forget the last entry
             if current_entry:
                 raw_entries.append(current_entry.strip())
-            
+
+            # Remove exact duplicate raw entries while preserving original order
+            try:
+                unique_raw_entries = []
+                seen_raw = set()
+                for raw in raw_entries:
+                    try:
+                        key = raw.strip() if isinstance(raw, str) else str(raw).strip()
+                    except Exception:
+                        key = str(raw).strip()
+                    if not key:
+                        continue
+                    if key in seen_raw:
+                        continue
+                    seen_raw.add(key)
+                    unique_raw_entries.append(raw)
+                raw_entries = unique_raw_entries
+            except Exception as dedup_error:
+                print(f"WARNING: Error de-duplicating feedback entries for ClientJob {self.id}: {str(dedup_error)}")
+
             for entry in raw_entries:
                 try:
                     if entry and entry.strip():
@@ -817,6 +843,7 @@ class ClientJob(AuditFields):
                                 'interview_date': '',
                                 'remarks': '',
                                 'executive_name': '',
+                                'profile_created_by': '',
                                 'call_status': '',
                                 'entry_time': ''
                             })
@@ -832,9 +859,17 @@ class ClientJob(AuditFields):
                         'interview_date': '',
                         'remarks': '',
                         'executive_name': '',
+                        'profile_created_by': '',
                         'call_status': '',
                         'entry_time': ''
                     })
+
+            # Mark the first stored feedback entry (original order) as profile created
+            try:
+                if entries and isinstance(entries[0], dict):
+                    entries[0]['is_profile_created'] = True
+            except Exception as mark_error:
+                print(f"WARNING: Error marking profile created entry for ClientJob {self.id}: {str(mark_error)}")
             
             # Sort entries by entry_time (date + time) so newest entries come first (LIFO)
             try:
@@ -868,12 +903,25 @@ class ClientJob(AuditFields):
                 entries.sort(key=_parse_entry_time, reverse=True)
 
                 if entries:
+                    # Prefer the entry we already marked as profile created (based on original order)
+                    existing_profile_entry = None
+                    for e in entries:
+                        if isinstance(e, dict) and e.get('is_profile_created'):
+                            existing_profile_entry = e
+                            break
+
+                    # Reset all flags
                     for e in entries:
                         if isinstance(e, dict):
                             e['is_profile_created'] = False
-                    last_entry = entries[-1]
-                    if isinstance(last_entry, dict):
-                        last_entry['is_profile_created'] = True
+
+                    # Re-apply the flag to the preferred entry, or fall back to oldest (last) entry
+                    if existing_profile_entry is not None:
+                        existing_profile_entry['is_profile_created'] = True
+                    else:
+                        last_entry = entries[-1]
+                        if isinstance(last_entry, dict):
+                            last_entry['is_profile_created'] = True
             except Exception as sort_error:
                 print(f"WARNING: Error sorting feedback entries for ClientJob {self.id}: {str(sort_error)}")
             
@@ -891,6 +939,7 @@ class ClientJob(AuditFields):
                 'interview_date': '',
                 'remarks': '',
                 'executive_name': '',
+                'profile_created_by': '',
                 'call_status': '',
                 'entry_time': ''
             }]
@@ -910,6 +959,7 @@ class ClientJob(AuditFields):
                     'interview_date': '',
                     'remarks': '',
                     'executive_name': '',
+                    'profile_created_by': '',
                     'call_status': '',
                     'entry_time': ''
                 }
@@ -1052,7 +1102,15 @@ class ClientJob(AuditFields):
                     entry_by_match = re.search(r'Entry By-([^:]*?)(?:\s*:\s*Entry Time|:Entry Time|$)', entry)
                     if entry_by_match:
                         parsed['executive_name'] = entry_by_match.group(1).strip()
-                    
+
+                    # Extract profile created by (if present)
+                    profile_created_match = re.search(r'Profile Created By-([^:]*?)(?:\s*:\s*Entry Time|:Entry Time|$)', entry)
+                    if profile_created_match:
+                        parsed['profile_created_by'] = profile_created_match.group(1).strip()
+                        # If no explicit Entry By, use profile created by as executive_name
+                        if not parsed['executive_name']:
+                            parsed['executive_name'] = parsed['profile_created_by']
+
                     # Extract entry time (handle multiple formats)
                     # Stop at first semicolon to avoid capturing next entry
                     entry_time_match = re.search(r'Entry Time\s*:?\s*(\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2})', entry)
@@ -1094,6 +1152,7 @@ class ClientJob(AuditFields):
                     'interview_date': '',
                     'remarks': '',
                     'executive_name': '',
+                    'profile_created_by': '',
                     'call_status': '',
                     'entry_time': ''
                 }
@@ -1544,13 +1603,13 @@ class ClientJob(AuditFields):
             updated_by=created_by
         )
         
-        # Add initial feedback entry
-        new_client_job.add_feedback(
-            feedback_text=f"Profile cloned from existing candidate for new client {new_client_name}",
-            remarks="new profile",
-            entry_by=created_by,
-            call_status="profile creation"
-        )
+        # # Add initial feedback entry
+        # new_client_job.add_feedback(
+        #     feedback_text=f"Profile cloned from existing candidate for new client {new_client_name}",
+        #     remarks="new profile",
+        #     entry_by=created_by,
+        #     call_status="profile creation"
+        # )
         
         print(f" Cloned candidate {self.candidate.candidate_name} for client {new_client_name}")
         print(f" New profile number: {new_profile_number}")
@@ -1666,6 +1725,13 @@ class ClientJob(AuditFields):
                 
         print(f" Marked {updated_count} expired jobs as open profile")
         return updated_count
+
+    # class Meta:
+    #     indexes = [
+            # models.Index(fields=['next_follow_up_date'], name='clientjob_nfd_idx'),
+            # models.Index(fields=['expected_joining_date'], name='clientjob_ejd_idx'),
+    #     ]
+    
     
     class Meta:
         ordering = ['-updated_at']  # Default ordering: newest first (LIFO)
@@ -1675,6 +1741,8 @@ class ClientJob(AuditFields):
             models.Index(fields=['client_name'], name='clientjob_client_idx'),
             models.Index(fields=['-updated_at'], name='clientjob_updated_at_idx'),
             models.Index(fields=['candidate', '-updated_at'], name='clientjob_cand_updated_idx'),
+            models.Index(fields=['next_follow_up_date'], name='clientjob_nfd_idx'),
+            models.Index(fields=['expected_joining_date'], name='clientjob_ejd_idx'),
         ]
 
     def __str__(self):
@@ -1987,6 +2055,8 @@ class CandidateStatusHistory(models.Model):
             models.Index(fields=['created_by'], name='idx_created_by'),
             models.Index(fields=['client_name'], name='idx_client_name'),
             models.Index(fields=['is_deleted'], name='idx_is_deleted'),
+            models.Index(fields=['attend_flag'], name='idx_attend_flag'),
+            models.Index(fields=['profile_submission'], name='idx_profile_submission'),
         ]
         ordering = ['-change_date', '-created_at']
 

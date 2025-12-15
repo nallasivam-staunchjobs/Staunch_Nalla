@@ -39,6 +39,29 @@ class CalendarApi {
     }
 
     /**
+     * Get detailed calendar events for a specific date and event type
+     * @param {string} date - Date in YYYY-MM-DD format
+     * @param {string} type - Event type code (IF, NFD, EDJ, PS, SEL, ATND, NR, INP)
+     * @returns {Promise} API response with detailed events
+     */
+    async getCalendarDetails(date, type) {
+        try {
+            const params = new URLSearchParams();
+            if (date) params.append('date', date);
+            if (type) params.append('type', type);
+
+            const queryString = params.toString();
+            const endpoint = `/candidates/calendar-details/${queryString ? `?${queryString}` : ''}`;
+
+            const response = await apiRequest(endpoint);
+            return response;
+        } catch (error) {
+            console.error('Error fetching calendar details:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Get calendar statistics for a specific date range
      * @param {Date} startDate - Start date
      * @param {Date} endDate - End date

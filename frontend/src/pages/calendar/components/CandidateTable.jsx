@@ -1114,6 +1114,10 @@ const CandidateTable = ({
                           const latestNfdDate = getLatestFeedbackData(clientJob, 'nfd');
                           const latestEjdDate = getLatestFeedbackData(clientJob, 'ejd');
                           const latestIfdDate = getLatestFeedbackData(clientJob, 'ifd');
+                          const profileStatus = clientJob?.profilestatus;
+                          const effectiveRemarkValue = clientJob?.effective_remark || latestRemarks || clientJob?.remarks || '';
+                          const remarkSource = clientJob?.remark_source;
+                          const hideDatesForFinalStatus = profileStatus === 'Joined' || profileStatus === 'Abscond';
 
                           return (
                             <>
@@ -1121,19 +1125,28 @@ const CandidateTable = ({
                               <div className="flex items-center gap-2">
                                 <strong>Remarks:</strong> 
                                 <span className={(() => {
+                                  const er = (effectiveRemarkValue || '').toLowerCase();
+                                  // Prefer profilestatus-based effective remark when available
+                                  if (remarkSource === 'profilestatus') {
+                                    if (er === 'joined') return 'text-green-600 font-semibold';
+                                    if (er === 'abscond') return 'text-red-600 font-semibold';
+                                  }
                                   const remarks = (clientJob?.remarks || '').toLowerCase();
                                   if (remarks === 'joined') return 'text-green-600 font-semibold';
                                   if (remarks === 'abscond') return 'text-red-600 font-semibold';
                                   if (isAssignable(candidate)) return 'text-green-600 font-semibold';
                                   return 'text-gray-700';
                                 })()}>
-                                  {clientJob?.remarks || 'No remarks'}
+                                  {clientJob?.effective_remark || clientJob?.remarks || 'No remarks'}
                                 </span>
                               </div>
                               
                               {/* NFD from Database - Show "Open Profile" if null or contains (open profile) */}
                               {(() => {
                                 // Use actual database field instead of feedback parsing
+                                if (hideDatesForFinalStatus) {
+                                  return null;
+                                }
                                 const nfdDate = clientJob?.next_follow_up_date;
                                 
                                 // Show "Open Profile" when NFD is null/empty or contains (open profile)
@@ -1209,9 +1222,8 @@ const CandidateTable = ({
                                   </div>
                                 );
                               })()}
-
                               {/* Interview Fixed Date (IFD) from Client Job Feedback (SearchView style) */}
-                              {(latestIfdDate && latestIfdDate !== '-') || (clientJob?.interview_fixed_date && clientJob.interview_fixed_date !== '-') ? (
+                              {!hideDatesForFinalStatus && ((latestIfdDate && latestIfdDate !== '-') || (clientJob?.interview_fixed_date && clientJob.interview_fixed_date !== '-')) ? (
                                 <div>
                                   <strong>IFD:</strong> {(() => {
                                     const ifdDate = latestIfdDate || clientJob?.interview_fixed_date;
@@ -1228,9 +1240,8 @@ const CandidateTable = ({
                                   })()}
                                 </div>
                               ) : null}
-
                               {/* Expected Joining Date (EJD) from Client Job Feedback (SearchView style) */}
-                              {(latestEjdDate && latestEjdDate !== '-') || (clientJob?.expected_joining_date && clientJob.expected_joining_date !== '-') ? (
+                              {!hideDatesForFinalStatus && ((latestEjdDate && latestEjdDate !== '-') || (clientJob?.expected_joining_date && clientJob.expected_joining_date !== '-')) ? (
                                 <div>
                                   <strong>EJD:</strong> {(() => {
                                     const ejdDate = latestEjdDate || clientJob?.expected_joining_date;

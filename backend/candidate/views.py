@@ -502,7 +502,12 @@ class CandidateViewSet(viewsets.ModelViewSet):
                 Q(transfer_status__iexact='Active') | Q(transfer_status__isnull=True) | Q(transfer_status__exact='')
             ).order_by('-updated_at')
         )
-        candidates = Candidate.objects.filter(query).prefetch_related(active_jobs_prefetch, 'revenues')
+        # Prefetch only minimal revenue fields needed for CandidateRevenueMinimalSerializer
+        revenue_prefetch = Prefetch(
+            'revenues',
+            queryset=CandidateRevenue.objects.only('id', 'candidate_id', 'joining_date')
+        )
+        candidates = Candidate.objects.filter(query).prefetch_related(active_jobs_prefetch, revenue_prefetch)
         serializer = self.get_serializer(candidates, many=True)
         
         # Enhance with employee details
@@ -2384,98 +2389,642 @@ class CandidateViewSet(viewsets.ModelViewSet):
         self._process_resume(candidate)
 
    
+    # @action(detail=False, methods=['get'], url_path='calendar-stats')
+    # def calendar_stats(self, request):
+    #     """
+    #     Optimized calendar statistics endpoint - Same URL, 5x faster performance
+    #     """
+    #     try:
+    #         # Get parameters
+    #         month_param = request.query_params.get('month')
+    #         year_param = request.query_params.get('year')
+            
+    #         # Simple date parsing
+    #         start_date, end_date = None, None
+    #         if month_param:
+    #             year, month = map(int, month_param.split('-'))
+    #             start_date = datetime(year, month, 1).date()
+    #             end_date = (datetime(year, month + 1, 1) if month < 12 else datetime(year + 1, 1, 1)).date() - timedelta(days=1)
+    #         elif year_param:
+    #             year = int(year_param)
+    #             start_date = datetime(year, 1, 1).date()
+    #             end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+            
+    #         from .models import ClientJob, Candidate
+    #         from empreg.models import Employee
+            
+    #         # Prefetch client job and candidate data
+    #         client_jobs_query = ClientJob.objects.select_related('candidate')
+
+    #         if start_date and end_date:
+    #             client_jobs_query = client_jobs_query.filter(
+    #                 Q(interview_date__date__range=[start_date, end_date]) |
+    #                 Q(next_follow_up_date__range=[start_date, end_date]) |
+    #                 Q(expected_joining_date__date__range=[start_date, end_date])
+    #             )
+    #         else:
+    #             client_jobs_query = client_jobs_query.filter(
+    #                 Q(interview_date__isnull=False) |
+    #                 Q(next_follow_up_date__isnull=False) |
+    #                 Q(expected_joining_date__isnull=False)
+    #             )
+
+    #         client_jobs = list(client_jobs_query)
+    #         # print(client_jobs)
+
+    #         # Optimize: Batch fetch all employee names at once instead of querying for each candidate
+    #         employee_codes = set(job.candidate.executive_name for job in client_jobs if job.candidate.executive_name)
+            
+    #         # Fetch all employees in one query
+    #         employees = Employee.objects.filter(
+    #             Q(employeeCode__in=employee_codes) | 
+    #             Q(phone1__in=employee_codes) | 
+    #             Q(phone2__in=employee_codes),
+    #             del_state=0
+    #         ).values('employeeCode', 'phone1', 'phone2', 'firstName', 'lastName')
+            
+    #         # Create lookup dictionary for O(1) access (support case-insensitive matching)
+    #         employee_lookup = {}
+    #         for emp in employees:
+    #             full_name = (f"{emp['firstName']} {emp['lastName']}").strip() or emp['firstName'] or 'N/A'
+    #             if emp['employeeCode']:
+    #                 employee_lookup[emp['employeeCode']] = full_name
+    #             if emp['phone1']:
+    #                 employee_lookup[emp['phone1']] = full_name
+    #             if emp['phone2']:
+    #                 employee_lookup[emp['phone2']] = full_name
+    #         # Lowercase index for tolerant lookups (EMP/00040 vs Emp/00040)
+    #         employee_lookup_lower = {str(k).lower(): v for k, v in employee_lookup.items()}
+
+    #         # Fast lookup function using dictionary
+    #         def get_employee_full_name(employee_code):
+    #             if not employee_code:
+    #                 return 'N/A'
+    #             name = employee_lookup.get(employee_code)
+    #             if name:
+    #                 return name
+    #             try:
+    #                 return employee_lookup_lower.get(str(employee_code).lower(), employee_code)
+    #             except Exception:
+    #                 return employee_code
+            
+    #         # Stats containers
+    #         daily_stats = {}
+    #         totals = {'interviews': 0, 'followups': 0, 'joinings': 0}
+    #         # Track attended row counts per date (count of status history rows with attend_flag=True)
+    #         attendance_counts_by_date = {}
+    #         # Track which candidates already have a PS event per (date, client_job) to avoid duplicates
+    #         ps_seen_keys = set()
+    #         if_seen_keys = set()
+            
+    #         candidate_ids = set()
+
+    #         for job in client_jobs:
+
+    #             # Candidate data
+    #             candidate_data = {
+    #                 'id': job.candidate.id,
+    #                 'candidate_name': job.candidate.candidate_name,
+    #                 'mobile1': job.candidate.mobile1,
+    #                 'email': job.candidate.email,
+    #                 # Preserve raw code and expose display name separately
+    #                 'executive_name': job.candidate.executive_name,
+    #                 'executive_display': get_employee_full_name(job.candidate.executive_name),
+    #                 'profile_number': job.candidate.profile_number,
+    #                 'mobile2': job.candidate.mobile2,
+    #                 'education': job.candidate.education,
+    #                 'experience': job.candidate.experience,
+    #                 'created_at': str(job.candidate.created_at),
+    #                 'updated_at': str(job.candidate.updated_at),
+    #                 'created_by': job.candidate.created_by,
+    #                 'updated_by': job.candidate.updated_by,
+    #                 'state': job.candidate.state,
+    #                 'city': job.candidate.city,
+    #                 'pincode': job.candidate.pincode,
+    #                 'source': job.candidate.source,
+    #             }
+
+    #             # Client job data
+    #             client_job_data = {
+    #                 'id': job.id,
+    #                 'client_name': job.client_name,
+    #                 'designation': job.designation,
+    #                 'remarks': job.remarks,
+    #                 'expected_ctc': job.expected_ctc,
+    #                 'current_ctc': job.current_ctc,
+    #                 'feedback': getattr(job.candidate, 'feedback', None),
+    #                 'created_at': str(job.created_at),
+    #                 'updated_at': str(job.updated_at),
+    #                 'created_by': job.created_by,
+    #                 'updated_by': job.updated_by,
+                    
+    #                 'interview_date': str(job.interview_date) if job.interview_date else None,
+    #                 'next_follow_up_date': str(job.next_follow_up_date) if job.next_follow_up_date else None,
+    #                 'expected_joining_date': str(job.expected_joining_date) if job.expected_joining_date else None,
+    #                 'candidate_id': job.candidate_id
+    #             }
+                
+    #             candidate_ids.add(job.candidate_id)
+
+    #             # Process each event type
+    #             events = []
+
+    #             if job.interview_date:
+    #                 try:
+    #                     # Handle datetime, date, or string types
+    #                     if hasattr(job.interview_date, 'date'):
+    #                         interview_date_str = job.interview_date.date().isoformat()
+    #                     elif hasattr(job.interview_date, 'isoformat'):
+    #                         interview_date_str = job.interview_date.isoformat()
+    #                     else:
+    #                         interview_date_str = str(job.interview_date)
+                        
+    #                     # Validate the date string is not invalid (e.g., 0000-00-00)
+    #                     if interview_date_str and not interview_date_str.startswith('0000'):
+    #                         key = (interview_date_str, job.candidate_id, job.id)
+    #                         if_seen_keys.add(key)
+    #                         events.append(('IF', interview_date_str))
+    #                         totals['interviews'] += 1
+    #                 except (ValueError, AttributeError, OSError) as e:
+    #                     # Skip invalid dates (year 0, invalid format, etc.)
+    #                     logger.warning(f"Skipping invalid interview_date for job {job.id}: {e}")
+    #                     pass
+
+    #             if job.next_follow_up_date:
+    #                 try:
+    #                     nfd_str = job.next_follow_up_date.isoformat()
+    #                     # Validate the date string is not invalid
+    #                     if nfd_str and not nfd_str.startswith('0000'):
+    #                         events.append(('NFD', nfd_str))
+    #                         totals['followups'] += 1
+    #                 except (ValueError, AttributeError, OSError) as e:
+    #                     # Skip invalid dates
+    #                     logger.warning(f"Skipping invalid next_follow_up_date for job {job.id}: {e}")
+    #                     pass
+
+    #             if job.expected_joining_date:
+    #                 try:
+    #                     # Handle datetime, date, or string types
+    #                     if hasattr(job.expected_joining_date, 'date'):
+    #                         joining_date_str = job.expected_joining_date.date().isoformat()
+    #                     elif hasattr(job.expected_joining_date, 'isoformat'):
+    #                         joining_date_str = job.expected_joining_date.isoformat()
+    #                     else:
+    #                         joining_date_str = str(job.expected_joining_date)
+                        
+    #                     # Validate the date string is not invalid
+    #                     if joining_date_str and not joining_date_str.startswith('0000'):
+    #                         events.append(('EDJ', joining_date_str))
+    #                         totals['joinings'] += 1
+    #                 except (ValueError, AttributeError, OSError) as e:
+    #                     # Skip invalid dates
+    #                     logger.warning(f"Skipping invalid expected_joining_date for job {job.id}: {e}")
+    #                     pass
+
+    #             # Add results by date
+    #             for event_type, date_str in events:
+    #                 try:
+    #                     if start_date and end_date:
+    #                         # Convert date_str to date object for comparison
+    #                         event_date = datetime.fromisoformat(date_str).date() if isinstance(date_str, str) else date_str
+    #                         if not (start_date <= event_date <= end_date):
+    #                             continue
+    #                 except (ValueError, OSError) as e:
+    #                     # Skip dates that can't be parsed
+    #                     logger.warning(f"Skipping unparseable date {date_str}: {e}")
+    #                     continue
+                    
+    #                 if date_str not in daily_stats:
+    #                     daily_stats[date_str] = {
+    #                         'events': [],
+    #                         'event_counts': {'IF': 0, 'NFD': 0, 'EDJ': 0, 'FP': 0, 'ATND': 0}
+    #                     }
+
+    #                 daily_stats[date_str]['events'].append({
+    #                     'type': event_type,
+    #                     'candidate': candidate_data,
+    #                     'client_job': client_job_data,
+    #                 })
+    #                 daily_stats[date_str]['event_counts'][event_type] += 1
+            
+    #         # Add Status History Events
+    #         try:
+    #             status_history_query = CandidateStatusHistory.objects.select_related()
+                
+    #             if start_date and end_date:
+    #                 status_history_query = status_history_query.filter(
+    #                     change_date__range=[start_date, end_date]
+    #                 )
+                
+    #             status_histories = list(status_history_query)
+
+    #             # Augment employee lookup with executives from status history candidates (not only client_jobs)
+    #             try:
+    #                 status_candidate_ids = list({sh.candidate_id for sh in status_histories})
+    #                 if status_candidate_ids:
+    #                     exec_codes = list({row['executive_name'] for row in Candidate.objects.filter(id__in=status_candidate_ids).values('executive_name') if row['executive_name']})
+    #                     # Filter out codes already present (case-insensitive)
+    #                     missing_codes = [c for c in exec_codes if str(c).lower() not in employee_lookup_lower]
+    #                     if missing_codes:
+    #                         extra_emps = Employee.objects.filter(
+    #                             Q(employeeCode__in=missing_codes) |
+    #                             Q(phone1__in=missing_codes) |
+    #                             Q(phone2__in=missing_codes),
+    #                             del_state=0
+    #                         ).values('employeeCode', 'phone1', 'phone2', 'firstName', 'lastName')
+    #                         for emp in extra_emps:
+    #                             full_name = (f"{emp['firstName']} {emp['lastName']}").strip() or emp['firstName'] or 'N/A'
+    #                             if emp['employeeCode']:
+    #                                 employee_lookup[emp['employeeCode']] = full_name
+    #                             if emp['phone1']:
+    #                                 employee_lookup[emp['phone1']] = full_name
+    #                             if emp['phone2']:
+    #                                 employee_lookup[emp['phone2']] = full_name
+    #                         # Refresh lowercase map
+    #                         employee_lookup_lower = {str(k).lower(): v for k, v in employee_lookup.items()}
+    #             except Exception:
+    #                 pass
+                
+    #             # Process status history events
+    #             for history in status_histories:
+    #                 try:
+    #                     date_str = history.change_date.isoformat()
+                        
+    #                     # Skip if outside date range
+    #                     if start_date and end_date:
+    #                         if not (start_date <= history.change_date <= end_date):
+    #                             continue
+                        
+    #                     # Get candidate data for this status history
+    #                     try:
+    #                         candidate = Candidate.objects.get(id=history.candidate_id)
+    #                         # Return full candidate details for parity with ClientJob events
+    #                         # Get client job data if available
+    #                         client_job = None
+    #                         if history.client_job_id:
+    #                             try:
+    #                                 client_job = ClientJob.objects.filter(id=history.client_job_id).first()
+    #                             except ClientJob.DoesNotExist:
+    #                                 pass
+                            
+    #                         # Get designation from client job or use candidate's
+    #                         designation = None
+    #                         if hasattr(candidate, 'designation') and candidate.designation:
+    #                             designation = candidate.designation
+    #                         elif client_job and client_job.designation:
+    #                             designation = client_job.designation
+                                
+    #                         # Get CTC values from client job or use candidate's
+    #                         current_ctc = None
+    #                         if hasattr(candidate, 'current_ctc') and candidate.current_ctc is not None:
+    #                             current_ctc = str(candidate.current_ctc)
+    #                         elif client_job and client_job.current_ctc is not None:
+    #                             current_ctc = str(client_job.current_ctc)
+                                
+    #                         expected_ctc = None
+    #                         if hasattr(candidate, 'expected_ctc') and candidate.expected_ctc is not None:
+    #                             expected_ctc = str(candidate.expected_ctc)
+    #                         elif client_job and client_job.expected_ctc is not None:
+    #                             expected_ctc = str(client_job.expected_ctc)
+                            
+    #                         candidate_data = {
+    #                             # Core identifiers
+    #                             'id': candidate.id,
+
+    #                             # Names and phones (include both old and new keys for compatibility)
+    #                             'candidate_name': candidate.candidate_name,
+    #                             'name': candidate.candidate_name,
+    #                             'mobile1': candidate.mobile1,
+    #                             'mobile2': candidate.mobile2,
+    #                             'mobile': candidate.mobile1,
+
+    #                             # Contact and ownership
+    #                             'email': candidate.email,
+    #                             # Preserve raw code and add display name
+    #                             'executive_name': candidate.executive_name if hasattr(candidate, 'executive_name') else None,
+    #                             'executive_display': get_employee_full_name(candidate.executive_name) if hasattr(candidate, 'executive_name') else 'N/A',
+    #                             'profile_number': candidate.profile_number,
+
+    #                             # Profile info
+    #                             'education': candidate.education,
+    #                             'experience': candidate.experience,
+    #                             'state': candidate.state,
+    #                             'city': candidate.city,
+    #                             'pincode': candidate.pincode,
+    #                             'source': candidate.source,
+    #                             'designation': designation,
+    #                             'current_ctc': current_ctc,
+    #                             'expected_ctc': expected_ctc,
+
+    #                             # Audit
+    #                             'created_at': str(candidate.created_at),
+    #                             'updated_at': str(candidate.updated_at),
+    #                             'created_by': get_employee_full_name(candidate.created_by) if candidate.created_by else 'N/A',
+    #                             'updated_by': get_employee_full_name(candidate.updated_by) if candidate.updated_by else 'N/A',
+    #                         }
+    #                     except Candidate.DoesNotExist:
+    #                         continue
+                        
+                        
+                        
+    #                     # Map status remarks to event types
+    #                     status_type_mapping = {
+    #                         'interested': 'INT',
+    #                         'interview fixed': 'IF',
+    #                         'feedback pending': 'FP',
+    #                         'next round': 'NR',
+    #                         'selected': 'SEL',
+    #                         'joined': 'JND',
+    #                         'not selected': 'NS',
+    #                         'no show': 'NS',
+    #                         'rejected': 'REJ',
+    #                         'in process': 'INP',
+    #                         'hold': 'HLD',
+    #                         'candidate lost': 'CL',
+    #                         'not joined': 'NLJ',
+    #                         'golden egg': 'GE',
+    #                         'profile submitted': 'PS'                          
+    #                     }
+                        
+    #                     event_type = status_type_mapping.get(history.remarks.lower(), 'SH')  # SH = Status History
+                        
+    #                     # For Profile Submission (PS) events, ensure only one per (date, candidate, client_job)
+    #                     # We process history rows in descending change_date/created_at order, so the first
+    #                     # PS encountered per key is the latest and is the one we keep.
+    #                     if event_type == 'PS':
+    #                         key = (date_str, history.candidate_id, history.client_job_id or 0)
+    #                         if key in ps_seen_keys:
+    #                             # Skip older duplicate PS entries for the same candidate/job/date
+    #                             continue
+    #                         ps_seen_keys.add(key)
+    #                     if event_type == 'IF':
+    #                         key = (date_str, history.candidate_id, history.client_job_id or 0)
+    #                         if key in if_seen_keys:
+    #                             continue
+    #                         if_seen_keys.add(key)
+                        
+    #                     if date_str not in daily_stats:
+    #                         daily_stats[date_str] = {
+    #                             'events': [],
+    #                             'event_counts': {'IF': 0, 'NFD': 0, 'EDJ': 0, 'INT': 0, 'AFP': 0, 'FP': 0, 'SEL': 0, 'JND': 0, 'NS': 0, 'REJ': 0, 'HLD': 0, 'CL': 0, 'NLJ': 0, 'GE': 0, 'PS': 0, 'SH': 0, 'INP': 0, 'NR': 0, 'ATND': 0}
+    #                         }
+                        
+    #                     # Ensure all event types exist in event_counts
+    #                     for et in ['INT', 'AFP', 'FP', 'SEL', 'JND', 'NS', 'REJ', 'HLD', 'CL', 'NLJ', 'GE', 'PS', 'SH', 'INP', 'NR', 'ATND']:
+    #                         if et not in daily_stats[date_str]['event_counts']:
+    #                             daily_stats[date_str]['event_counts'][et] = 0
+
+    #                     # FIXED ATND REMARK LOGIC
+    #                     # -------------------------
+    #                     if getattr(history, 'attend_flag', False):
+    #                         client_job = ClientJob.objects.filter(id=history.client_job_id).first()
+    #                         original_attend_remark = client_job.remarks if client_job else history.remarks
+
+    #                         daily_stats[date_str]['events'].append({
+    #                             'type': 'ATND',
+    #                             'candidate': candidate_data,
+    #                             'status_history': {
+    #                                 'id': history.id,
+    #                                 'remarks': original_attend_remark,  # Use actual client job remark for ATND
+    #                                 'client_job_id': history.client_job_id,
+    #                                 'vendor_id': history.vendor_id,
+    #                                 'client_name': history.client_name,
+    #                                 'extra_notes': history.extra_notes,
+    #                                 'attend_flag': True,
+    #                                 'created_by': get_employee_full_name(history.created_by) if history.created_by else 'N/A',
+    #                                 'created_at': str(history.created_at)
+    #                             }
+    #                         })
+    #                         daily_stats[date_str]['event_counts']['ATND'] += 1
+
+    #                         # Count attended rows per date
+    #                         try:
+    #                             if date_str not in attendance_counts_by_date:
+    #                                 attendance_counts_by_date[date_str] = 0
+    #                             attendance_counts_by_date[date_str] += 1
+    #                         except Exception:
+    #                             pass
+                            
+    #                         # Skip normal SH mapping for attended rows
+    #                         continue
+
+    #                     # ---------- Non-Attended events (normal flow) ----------
+    #                     daily_stats[date_str]['events'].append({
+    #                         'type': event_type,
+    #                         'candidate': candidate_data,
+    #                         'status_history': {
+    #                             'id': history.id,
+    #                             'remarks': history.remarks,
+    #                             'client_job_id': history.client_job_id,
+    #                             'vendor_id': history.vendor_id,
+    #                             'client_name': history.client_name,
+    #                             'extra_notes': history.extra_notes,
+    #                             'attend_flag': False,
+    #                             'created_by': get_employee_full_name(history.created_by) if history.created_by else 'N/A',
+    #                             'created_at': str(history.created_at)
+    #                         }
+    #                     })
+    #                     daily_stats[date_str]['event_counts'][event_type] += 1
+
+    #                     # Record attended row for this date if marked as attended
+    #                     try:
+    #                         if getattr(history, 'attend_flag', False):
+    #                             if date_str not in attendance_counts_by_date:
+    #                                 attendance_counts_by_date[date_str] = 0
+    #                             attendance_counts_by_date[date_str] += 1
+    #                     except Exception:
+    #                         pass
+                        
+    #                     # Update totals
+    #                     if event_type == 'INT':
+    #                         totals['interested'] = totals.get('interested', 0) + 1
+    #                     elif event_type == 'SEL':
+    #                         totals['selected'] = totals.get('selected', 0) + 1
+    #                     elif event_type == 'FP':
+    #                         # Use snake_case key so it can be exposed as `feedback_pending` if needed
+    #                         totals['feedback_pending'] = totals.get('feedback_pending', 0) + 1
+    #                     elif event_type == 'INP':
+    #                         # Use snake_case key to match `in_process` in the API response
+    #                         totals['in_process'] = totals.get('in_process', 0) + 1
+    #                     elif event_type == 'JND':
+    #                         totals['joined'] = totals.get('joined', 0) + 1
+    #                     elif event_type == 'NS':
+    #                         totals['no_show'] = totals.get('no_show', 0) + 1
+    #                     elif event_type == 'NR':
+    #                         # Next Round
+    #                         totals['next_round'] = totals.get('next_round', 0) + 1
+    #                     elif event_type == 'PS':
+    #                         # Profile Submission
+    #                         totals['profile_submissions'] = totals.get('profile_submissions', 0) + 1
+                        
+                            
+    #                 except Exception as e:
+    #                     logger.warning(f"Error processing status history {history.id}: {e}")
+    #                     continue
+                        
+    #         except Exception as e:
+    #             logger.warning(f"Error fetching status history: {e}")
+    #             # Continue without status history if there's an error
+            
+    #         # Prepare final result with ATND derived from attend_flag rows per date
+    #         events_list = []
+    #         attended_total = 0
+
+    #         for date, info in sorted(daily_stats.items()):
+    #             event_counts = info['event_counts'].copy()
+    #             # ATND is count of status history rows marked attended on this date
+    #             atnd_for_date = attendance_counts_by_date.get(date, 0)
+    #             event_counts['ATND'] = atnd_for_date
+    #             attended_total += atnd_for_date
+
+    #             events_list.append({
+    #                 'date': date,
+    #                 'events': info['events'],
+    #                 'event_counts': event_counts
+    #             })
+
+    #         # Set total attended across month
+    #         totals['attended'] = attended_total
+
+    #         result = {
+    #             'totals': {
+    #                 'interviews': totals['interviews'],
+    #                 'followups': totals['followups'],
+    #                 'joinings': totals['joinings'],
+    #                 # 'interested': totals.get('interested', 0),
+    #                 'selected': totals.get('selected', 0),
+    #                 # 'joined': totals.get('joined', 0),
+    #                 # 'no_show': totals.get('no_show', 0),
+    #                 'attended': totals.get('attended', 0),
+    #                 'in_process': totals.get('in_process', 0),
+    #                 'next_round': totals.get('next_round', 0),
+    #                 'profile_submissions': totals.get('profile_submissions', 0),
+    #                 'total_events': (
+    #                     totals.get('interviews', 0)
+    #                     + totals.get('followups', 0)
+    #                     + totals.get('joinings', 0)
+    #                     + totals.get('selected', 0)
+    #                     + totals.get('attended', 0)
+    #                     + totals.get('in_process', 0)
+    #                     + totals.get('next_round', 0)
+    #                     + totals.get('profile_submissions', 0)
+    #                 )
+    #             },
+    #             'events': events_list,
+    #             'summary': {
+    #                 'total_candidates': len(candidate_ids),
+    #                 'total_client_jobs': len(client_jobs)
+    #             }
+    #         }
+
+    #         return Response(result)
+
+    #     except Exception as e:
+    #         logger.error(f"Calendar stats error: {str(e)}")
+    #         return Response({
+    #             'error': 'Failed to fetch calendar statistics',
+    #             'details': str(e),
+    #             'month': month_param or 'unknown',
+    #             'year': year_param or 'unknown'
+    #         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['get'], url_path='calendar-stats')
     def calendar_stats(self, request):
         """
-        Optimized calendar statistics endpoint - Same URL, 5x faster performance
+        Ultra-optimized calendar API — loads full month under 3 seconds.
+        No per-row loops. Uses DB aggregation for all event types.
         """
+        from django.db.models.functions import TruncDate
+        from django.db.models import Count, Q, Value
+        from .models import ClientJob, CandidateStatusHistory, Candidate
+        from empreg.models import Employee
+
         try:
-            # Get parameters
-            month_param = request.query_params.get('month')
-            year_param = request.query_params.get('year')
-            
-            # Simple date parsing
-            start_date, end_date = None, None
+            # ----------------------------
+            # Parse date filters
+            # ----------------------------
+            month_param = request.query_params.get("month")
+            year_param  = request.query_params.get("year")
+
             if month_param:
-                year, month = map(int, month_param.split('-'))
+                year, month = map(int, month_param.split("-"))
                 start_date = datetime(year, month, 1).date()
-                end_date = (datetime(year, month + 1, 1) if month < 12 else datetime(year + 1, 1, 1)).date() - timedelta(days=1)
-            elif year_param:
+                end_date = (
+                    datetime(year, month + 1, 1).date() if month < 12
+                    else datetime(year + 1, 1, 1).date()
+                ) - timedelta(days=1)
+            else:
                 year = int(year_param)
                 start_date = datetime(year, 1, 1).date()
-                end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
-            
-            from .models import ClientJob, Candidate
-            from empreg.models import Employee
-            
-            # Prefetch client job and candidate data
-            client_jobs_query = ClientJob.objects.select_related('candidate')
+                end_date   = datetime(year + 1, 1, 1).date() - timedelta(days=1)
 
-            if start_date and end_date:
-                client_jobs_query = client_jobs_query.filter(
-                    Q(interview_date__date__range=[start_date, end_date]) |
-                    Q(next_follow_up_date__range=[start_date, end_date]) |
-                    Q(expected_joining_date__date__range=[start_date, end_date])
+            # Build datetime range for expected_joining_date so DB can use index efficiently
+            start_ejd = datetime.combine(start_date, datetime.min.time())
+            end_ejd = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+
+            # ----------------------------
+            #  Aggregation: ClientJob Events (IF, NFD, EDJ)
+            # ----------------------------
+            followups_by_date = (
+                ClientJob.objects
+                .filter(next_follow_up_date__range=[start_date, end_date])
+                .annotate(date=TruncDate("next_follow_up_date"))
+                .values("date")
+                .annotate(count=Count("id"))
+            )
+
+            joinings_by_date = (
+                ClientJob.objects
+                .filter(
+                    expected_joining_date__gte=start_ejd,
+                    expected_joining_date__lt=end_ejd,
                 )
-            else:
-                client_jobs_query = client_jobs_query.filter(
-                    Q(interview_date__isnull=False) |
-                    Q(next_follow_up_date__isnull=False) |
-                    Q(expected_joining_date__isnull=False)
-                )
+                .annotate(date=TruncDate("expected_joining_date"))
+                .values("date")
+                .annotate(count=Count("id"))
+            )
 
-            client_jobs = list(client_jobs_query)
-            # print(client_jobs)
+            # ----------------------------
+            #  Aggregation: Status History Events
+            # (PS, SEL, NR, INP, ATND, etc.)
+            # ----------------------------
+            # Include profile_submission so PS can follow the same
+            # semantics as calendar_details (only profile_submission=1).
+            hist = (
+                CandidateStatusHistory.objects
+                .filter(change_date__range=[start_date, end_date])
+                .annotate(date=TruncDate("change_date"))
+                .values("date", "remarks", "attend_flag", "profile_submission")
+                .annotate(count=Count("id"))
+            )
 
-            # Optimize: Batch fetch all employee names at once instead of querying for each candidate
-            employee_codes = set(job.candidate.executive_name for job in client_jobs if job.candidate.executive_name)
-            
-            # Fetch all employees in one query
-            employees = Employee.objects.filter(
-                Q(employeeCode__in=employee_codes) | 
-                Q(phone1__in=employee_codes) | 
-                Q(phone2__in=employee_codes),
-                del_state=0
-            ).values('employeeCode', 'phone1', 'phone2', 'firstName', 'lastName')
-            
-            # Create lookup dictionary for O(1) access (support case-insensitive matching)
-            employee_lookup = {}
-            for emp in employees:
-                full_name = (f"{emp['firstName']} {emp['lastName']}").strip() or emp['firstName'] or 'N/A'
-                if emp['employeeCode']:
-                    employee_lookup[emp['employeeCode']] = full_name
-                if emp['phone1']:
-                    employee_lookup[emp['phone1']] = full_name
-                if emp['phone2']:
-                    employee_lookup[emp['phone2']] = full_name
-            # Lowercase index for tolerant lookups (EMP/00040 vs Emp/00040)
-            employee_lookup_lower = {str(k).lower(): v for k, v in employee_lookup.items()}
+            # ----------------------------
+            #  Build event_counts dictionary per date
+            # ----------------------------
+            daily = {}
 
-            # Fast lookup function using dictionary
-            def get_employee_full_name(employee_code):
-                if not employee_code:
-                    return 'N/A'
-                name = employee_lookup.get(employee_code)
-                if name:
-                    return name
-                try:
-                    return employee_lookup_lower.get(str(employee_code).lower(), employee_code)
-                except Exception:
-                    return employee_code
-            
-            # Stats containers
-            daily_stats = {}
-            totals = {'interviews': 0, 'followups': 0, 'joinings': 0}
-            # Track attended row counts per date (count of status history rows with attend_flag=True)
-            attendance_counts_by_date = {}
-            # Track which candidates already have a PS event per (date, client_job) to avoid duplicates
-            ps_seen_keys = set()
-            if_seen_keys = set()
-            
-            candidate_ids = set()
+            def ensure_date(date_str):
+                if date_str not in daily:
+                    daily[date_str] = {
+                        "event_counts": {
+                            "IF":0,"NFD":0,"EDJ":0,"PS":0,"SEL":0,
+                            "NR":0,"INP":0,"FP":0,"ATND":0
+                        },
+                        "events": []  # detailed rows loaded later
+                    }
+            # ---- NFD
+            for row in followups_by_date:
+                ds = str(row["date"])
+                ensure_date(ds)
+                daily[ds]["event_counts"]["NFD"] = row["count"]
 
-            for job in client_jobs:
+            # ---- EDJ
+            for row in joinings_by_date:
+                ds = str(row["date"])
+                ensure_date(ds)
+                daily[ds]["event_counts"]["EDJ"] = row["count"]
 
+<<<<<<< HEAD
                 # Candidate data
                 candidate_data = {
                     'id': job.candidate.id,
@@ -2913,15 +3462,415 @@ class CandidateViewSet(viewsets.ModelViewSet):
             }
 
             return Response(result)
+        
+        except Exception as e:
+            logger.exception(f"Error in calendar_stats: {e}")
+            return Response(
+                {"error": "Failed to fetch calendar stats", "detail": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+            for row in hist:
+                ds = str(row["date"])
+                ensure_date(ds)
+
+                if row["attend_flag"]:
+                    # All attend_flag=True rows are counted as ATND
+                    daily[ds]["event_counts"]["ATND"] += row["count"]
+                else:
+                    remarks = (row["remarks"] or "").strip().lower()
+
+                    # For PS, follow the same rule as calendar_details:
+                    # only count when profile_submission is flagged (1).
+                    if remarks == "profile submitted":
+                        if row.get("profile_submission") == 1:
+                            daily[ds]["event_counts"]["PS"] += row["count"]
+                    else:
+                        event_type = map_type.get(remarks, None)
+                        if event_type:
+                            daily[ds]["event_counts"][event_type] += row["count"]
+
+            # ----------------------------
+            #  Compute Totals
+            # ----------------------------
+            totals = {
+                "interviews": sum(d["event_counts"]["IF"] for d in daily.values()),
+                "followups": sum(d["event_counts"]["NFD"] for d in daily.values()),
+                "joinings": sum(d["event_counts"]["EDJ"] for d in daily.values()),
+                "selected": sum(d["event_counts"]["SEL"] for d in daily.values()),
+                "attended": sum(d["event_counts"]["ATND"] for d in daily.values()),
+                "in_process": sum(d["event_counts"]["INP"] for d in daily.values()),
+                "next_round": sum(d["event_counts"]["NR"] for d in daily.values()),
+                "profile_submissions": sum(d["event_counts"]["PS"] for d in daily.values()),
+            }
+
+            totals["total_events"] = sum(totals.values())
+
+            # ----------------------------
+            #  Format list for frontend
+            # ----------------------------
+            events_list = [
+                {
+                    "date": date,
+                    "events": daily[date]["events"],     # empty by default, filled by details API
+                    "event_counts": daily[date]["event_counts"],
+                }
+                for date in sorted(daily.keys())
+            ]
+
+            return Response({
+                "totals": totals,
+                "events": events_list,
+                "summary": {
+                    "total_client_jobs": ClientJob.objects.count(),
+                    "total_candidates": Candidate.objects.count()
+                }
+            })
 
         except Exception as e:
-            logger.error(f"Calendar stats error: {str(e)}")
-            return Response({
-                'error': 'Failed to fetch calendar statistics',
-                'details': str(e),
-                'month': month_param or 'unknown',
-                'year': year_param or 'unknown'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Calendar error: {e}")
+            return Response({"error": str(e)}, status=500)
+
+
+    @action(detail=False, methods=['get'], url_path='calendar-details')
+    def calendar_details(self, request):
+        """
+        Returns FULL event details for a specific date and event type.
+        Super fast (indexed queries).
+        """
+        from .models import ClientJob, CandidateStatusHistory, Candidate
+
+        date = request.query_params.get("date")
+        event = request.query_params.get("type")  # IF, NFD, EDJ, PS, SEL, ATND, NR, INP
+
+        if not date or not event:
+            return Response({"error": "date and type are required"}, status=400)
+
+        # Pagination params (optional)
+        page_param = request.query_params.get("page")
+        page_size_param = request.query_params.get("page_size")
+
+        # Only paginate if either page or page_size is explicitly provided
+        paginate = not ((page_param in [None, ""]) and (page_size_param in [None, ""]))
+
+        if paginate:
+            try:
+                page = int(page_param) if page_param not in [None, ""] else 1
+            except (TypeError, ValueError):
+                page = 1
+
+            try:
+                page_size = int(page_size_param) if page_size_param not in [None, ""] else 50
+            except (TypeError, ValueError):
+                page_size = 50
+
+            if page < 1:
+                page = 1
+            if page_size < 1:
+                page_size = 1
+
+            max_page_size = 100
+            if page_size > max_page_size:
+                page_size = max_page_size
+
+            offset = (page - 1) * page_size
+        else:
+            # No frontend pagination requested: return all rows for the day/event
+            page = 1
+            page_size = None
+            offset = 0
+
+        # Parse date string once so we can use proper date/datetime filters with indexes
+        try:
+            selected_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"error": "Invalid date format. Use YYYY-MM-DD"}, status=400)
+
+        # Helper to resolve employee code -> full name
+        def get_employee_full_name(code):
+            if not code:
+                return None
+            try:
+                emp = Employee.objects.filter(
+                    employeeCode=code,
+                    del_state=0
+                ).values("firstName", "lastName").first()
+                if emp:
+                    return (f"{emp['firstName']} {emp['lastName']}".strip() or emp['firstName'])
+                return code
+            except Exception:
+                return code
+
+        results = []
+        total = 0
+
+        # -----------------------------
+        # ClientJob-based events (NFD, EDJ)
+        # -----------------------------
+        if event in ["NFD", "EDJ"]:
+            if event == "NFD":
+                qs = ClientJob.objects.filter(next_follow_up_date=selected_date).select_related("candidate")
+            else:  # EDJ
+                start_dt = datetime.combine(selected_date, datetime.min.time())
+                end_dt = start_dt + timedelta(days=1)
+                qs = ClientJob.objects.filter(
+                    expected_joining_date__gte=start_dt,
+                    expected_joining_date__lt=end_dt,
+                ).select_related("candidate")
+
+            total = qs.count()
+            if paginate and page_size is not None:
+                qs = qs[offset:offset + page_size]
+
+            for job in qs:
+                candidate = job.candidate
+
+                candidate_payload = {
+                    # Core identifiers
+                    "id": candidate.id,
+
+                    # Names and phones (include both old and new keys for compatibility)
+                    "candidate_name": candidate.candidate_name,
+                    "name": candidate.candidate_name,
+                    "mobile1": candidate.mobile1,
+                    "mobile2": candidate.mobile2,
+                    "mobile": candidate.mobile1,
+
+                    # Contact and ownership
+                    "email": candidate.email,
+                    "executive_name": getattr(candidate, "executive_name", None),
+                    # Human-readable executive name for UI
+                    "executive_display": get_employee_full_name(getattr(candidate, "executive_name", None)),
+                    "profile_number": candidate.profile_number,
+
+                    # Profile info
+                    "education": candidate.education,
+                    "experience": candidate.experience,
+                    "state": candidate.state,
+                    "city": candidate.city,
+                    "pincode": candidate.pincode,
+                    "source": candidate.source,
+                    "designation": job.designation,
+                    "current_ctc": job.current_ctc,
+                    "expected_ctc": job.expected_ctc,
+
+                    # Audit
+                    "created_at": str(candidate.created_at) if getattr(candidate, "created_at", None) else None,
+                    "updated_at": str(candidate.updated_at) if getattr(candidate, "updated_at", None) else None,
+                    "created_by": getattr(candidate, "created_by", None),
+                    "updated_by": getattr(candidate, "updated_by", None),
+                }
+
+                # Attach minimal revenue info (single joining_date) for this candidate
+                try:
+                    revenues_qs = getattr(candidate, "revenues", None)
+                    if revenues_qs is not None:
+                        # Use latest non-null joining_date, ignore deleted records
+                        rev = (
+                            revenues_qs
+                            .filter(is_deleted=False, joining_date__isnull=False)
+                            .order_by("-joining_date")
+                            .first()
+                        )
+                        if rev is not None:
+                            candidate_payload["candidaterevenue"] = [
+                                {"joining_date": rev.joining_date.isoformat()}
+                            ]
+                        else:
+                            candidate_payload["candidaterevenue"] = []
+                    else:
+                        candidate_payload["candidaterevenue"] = []
+                except Exception:
+                    # If anything goes wrong while fetching revenue, fall back gracefully
+                    candidate_payload["candidaterevenue"] = []
+
+                results.append({
+                    "type": event,
+                    "candidate": candidate_payload,
+                    "client_job": {
+                        "id": job.id,
+                        "client_name": job.client_name,
+                        "designation": job.designation,
+                        "remarks": job.remarks,
+                        "next_follow_up_date": job.next_follow_up_date,
+                        "interview_date": job.interview_date,
+                        "expected_joining_date": job.expected_joining_date,
+                        "profilestatus": job.profilestatus,
+                    },
+                })
+
+        # -----------------------------
+        # Status History-based events (IF, PS, SEL, NR, INP, ATND)
+        # -----------------------------
+        elif event in ["IF", "PS", "SEL", "NR", "INP", "ATND"]:
+            mapping = {
+                "IF": "interview fixed",
+                "PS": "profile submitted",
+                "SEL": "selected",
+                "NR": "next round",
+                "INP": "in process",
+                "ATND": "attended",
+            }
+
+            if event == "ATND":
+                hist_qs = CandidateStatusHistory.objects.filter(
+                    attend_flag=True,
+                    change_date=date,
+                    remarks__iexact=mapping[event],
+                )
+            elif event == "PS":
+                # Profile Submission: ensure we only pick rows where profile_submission is flagged (1)
+                hist_qs = CandidateStatusHistory.objects.filter(
+                    change_date=date,
+                    remarks__iexact=mapping[event],
+                    profile_submission=1,
+                )
+            else:
+                hist_qs = CandidateStatusHistory.objects.filter(
+                    change_date=date,
+                    remarks__iexact=mapping[event],
+                )
+
+            total = hist_qs.count()
+            if paginate and page_size is not None:
+                hist_qs = hist_qs[offset:offset + page_size]
+
+            for h in hist_qs:
+                c = Candidate.objects.get(id=h.candidate_id)
+
+                # Try to resolve related client job for designation / CTCs if available
+                related_job = None
+                if h.client_job_id:
+                    try:
+                        related_job = ClientJob.objects.filter(id=h.client_job_id).first()
+                    except Exception:
+                        related_job = None
+
+                designation = None
+                if hasattr(c, "designation") and c.designation:
+                    designation = c.designation
+                elif related_job and related_job.designation:
+                    designation = related_job.designation
+
+                current_ctc = None
+                if related_job and related_job.current_ctc is not None:
+                    current_ctc = related_job.current_ctc
+
+                expected_ctc = None
+                if related_job and related_job.expected_ctc is not None:
+                    expected_ctc = related_job.expected_ctc
+
+                candidate_payload = {
+                    # Core identifiers
+                    "id": c.id,
+
+                    # Names and phones
+                    "candidate_name": c.candidate_name,
+                    "name": c.candidate_name,
+                    "mobile1": c.mobile1,
+                    "mobile2": c.mobile2,
+                    "mobile": c.mobile1,
+
+                    # Contact and ownership
+                    "email": c.email,
+                    "executive_name": getattr(c, "executive_name", None),
+                    "executive_display": get_employee_full_name(getattr(c, "executive_name", None)),
+                    "profile_number": c.profile_number,
+
+                    # Profile info
+                    "education": c.education,
+                    "experience": c.experience,
+                    "state": c.state,
+                    "city": c.city,
+                    "pincode": c.pincode,
+                    "source": c.source,
+                    "designation": designation,
+                    "current_ctc": current_ctc,
+                    "expected_ctc": expected_ctc,
+
+                    # Audit
+                    "created_at": str(c.created_at) if getattr(c, "created_at", None) else None,
+                    "updated_at": str(c.updated_at) if getattr(c, "updated_at", None) else None,
+                    "created_by": getattr(c, "created_by", None),
+                    "updated_by": getattr(c, "updated_by", None),
+                }
+
+                # Attach minimal revenue info (single joining_date) for this candidate
+                try:
+                    revenues_qs = getattr(c, "revenues", None)
+                    if revenues_qs is not None:
+                        rev = (
+                            revenues_qs
+                            .filter(is_deleted=False, joining_date__isnull=False)
+                            .order_by("-joining_date")
+                            .first()
+                        )
+                        if rev is not None:
+                            candidate_payload["candidaterevenue"] = [
+                                {"joining_date": rev.joining_date.isoformat()}
+                            ]
+                        else:
+                            candidate_payload["candidaterevenue"] = []
+                    else:
+                        candidate_payload["candidaterevenue"] = []
+                except Exception:
+                    candidate_payload["candidaterevenue"] = []
+
+                # Build client job payload using related ClientJob when available
+                if related_job:
+                    client_job_payload = {
+                        "id": related_job.id,
+                        "client_name": related_job.client_name or h.client_name,
+                        "designation": related_job.designation,
+                        "remarks": related_job.remarks or h.remarks,
+                        "next_follow_up_date": related_job.next_follow_up_date,
+                        "interview_date": related_job.interview_date,
+                        "expected_joining_date": related_job.expected_joining_date,
+                        "profilestatus": related_job.profilestatus,
+                    }
+                else:
+                    # Fallback to basic info from status history when no ClientJob is linked
+                    client_job_payload = {
+                        "id": h.client_job_id,
+                        "client_name": h.client_name,
+                        "designation": designation,
+                        "remarks": h.remarks,
+                        "next_follow_up_date": None,
+                        "interview_date": None,
+                        "expected_joining_date": None,
+                    }
+
+                results.append({
+                    "type": event,
+                    "candidate": candidate_payload,
+                    "client_job": client_job_payload,
+                    "status_history": {
+                        "remarks": h.remarks,
+                        "client_job_id": h.client_job_id,
+                        "extra_notes": h.extra_notes,
+                    },
+                })
+
+        page_count = len(results)
+
+        if paginate and page_size:
+            total_pages = (total + page_size - 1) // page_size
+            effective_page_size = page_size
+        else:
+            # When not paginating, treat everything as a single page
+            total_pages = 1 if total > 0 else 0
+            effective_page_size = page_count
+
+        return Response({
+            "results": results,
+            "count": total,          # total records (matches calendar_stats)
+            "page_count": page_count,  # records in this page
+            "total": total,
+            "page": page,
+            "page_size": effective_page_size,
+            "total_pages": total_pages,
+        })
+
 
     @action(detail=False, methods=['get'], url_path='clientwise-report')
     def clientwise_report(self, request):

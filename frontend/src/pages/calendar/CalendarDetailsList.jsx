@@ -93,7 +93,7 @@ const transformEventsToCandidate = (events) => {
         }
         
         return {
-            // ✅ Complete Candidate Details (from CandidateSerializer)
+            // Complete Candidate Details (from CandidateSerializer)
             id: uniqueId, // Use unique key instead of candidateId for React rendering
             candidateId: candidateId, // Keep original candidate ID for API calls
             candidateName: event.candidate?.candidate_name || event.candidate?.name || 'N/A',
@@ -101,6 +101,7 @@ const transformEventsToCandidate = (events) => {
             mobile1: event.candidate?.mobile1 || event.candidate?.mobile || 'N/A',
             mobile2: event.candidate?.mobile2 || null,
             contactNumber1: event.candidate?.mobile1 || event.candidate?.mobile || 'N/A',
+            contactNumber2: event.candidate?.mobile2 || null,
             email: event.candidate?.email || 'N/A',
             alternateEmail: event.candidate?.alternate_email || 'N/A',
             executiveName: event.candidate?.executive_display || event.candidate?.executive_name || 'N/A',
@@ -133,6 +134,17 @@ const transformEventsToCandidate = (events) => {
                 const cj = event.client_job || {};
                 const sh = event.status_history || {};
                 const candidate = event.candidate || {};
+
+                // Derive profilestatus-based effective remark for unified UI behaviour
+                const rawProfilestatus = cj.profilestatus || null;
+                let effectiveRemark = cj.remarks || sh.remarks || '';
+                let remarkSource = null;
+
+                if (rawProfilestatus && typeof rawProfilestatus === 'string' && rawProfilestatus.trim() !== '') {
+                    effectiveRemark = rawProfilestatus;
+                    remarkSource = 'profilestatus';
+                }
+
                 return {
                     id: cj.id || sh.client_job_id,
                     clientName: cj.client_name || sh.client_name || 'N/A',
@@ -142,7 +154,10 @@ const transformEventsToCandidate = (events) => {
                     interview_date: ifdDate?.toISOString() || null,
                     next_follow_up_date: nfdDate?.toISOString() || null,
                     expected_joining_date: ejdDate?.toISOString() || null,
-                    remarks: sh.remarks || cj.remarks || 'N/A',
+                    remarks: cj.remarks || sh.remarks || 'N/A',
+                    profilestatus: rawProfilestatus || null,
+                    effective_remark: effectiveRemark,
+                    remark_source: remarkSource,
                     status: cj.status || 'N/A',
                     feedback: cj.feedback ? [cj.feedback] : [],
                     extra_notes: sh.extra_notes || ''
@@ -193,6 +208,10 @@ const transformEventsToCandidate = (events) => {
             // ✅ Employee code for name lookup
             employeeCode: event.candidate?.executive_name || 'N/A',
             
+            // ✅ Revenue info for DOJ / Joined / Abscond handling
+            candidaterevenue: event.candidate?.candidaterevenue || [],
+            backendData: event.candidate || null,
+            
             // ✅ Client information at top level for compatibility
             client_name: (event.client_job?.client_name || event.status_history?.client_name || 'N/A'),
             clientName: (event.client_job?.client_name || event.status_history?.client_name || 'N/A'),
@@ -203,7 +222,7 @@ const transformEventsToCandidate = (events) => {
             
             // ✅ Complete data flag
             hasCompleteDetails: true,
-            dataSource: 'calendar-stats-api-full-details'
+            dataSource: 'calendar-details-api'
         };
     });
 };
@@ -242,89 +261,37 @@ function CalendarDetailsList() {
     const selectedDate = location.state?.selectedDate || dateParam;
 
     
-    // Fetch events for the specific date from backend API
+    // Fetch events for the specific date from backend API using calendar-details endpoint
     const fetchEventsForDate = async () => {
         if (!dateParam) return;
-        
+
         setLoading(true);
         setError(null);
-        
-        try {
-            // Extract year-month from date parameter
-            const date = new Date(dateParam);
-            const year = date.getFullYear();
-            const month = date.getMonth() + 1;
-            const monthParam = `${year}-${String(month).padStart(2, '0')}`;
-            
-            const response = await calendarApi.getCalendarStats(monthParam);
-            
-            if (response && response.events) {
-                // Normalize dates to YYYY-MM-DD in case backend returns ISO datetimes (e.g., from status history)
-                const normalizedEvents = response.events.map(e => ({
-                    ...e,
-                    date: (e.date || '').split('T')[0]
-                }));
-                
-                // Find events for the specific date
-                const dayEvents = normalizedEvents.find(event => event.date === dateParam);
-                
-                if (dayEvents && dayEvents.events) {
-                    let filteredEvents = dayEvents.events;
-                    
-                    // Event type grouping for special categories
-                    const groupedEventTypes = {
-                        'ATND': ['ATND'] // Only show ATND status
-                    };
 
-                    // Filter by event type if specified (handle consolidated events and grouped types)
-                    if (eventTypeFilter) {
-                        console.log('Filtering events. Looking for type:', eventTypeFilter);
-                        console.log('Available event types:', [...new Set(dayEvents.events.map(e => e.type))]);
-                        
-                        // Get the event types to filter by (including grouped types)
-                        let filterTypes = [eventTypeFilter.toUpperCase()];
-                        if (groupedEventTypes[eventTypeFilter.toUpperCase()]) {
-                            filterTypes = groupedEventTypes[eventTypeFilter.toUpperCase()];
-                            console.log('Expanded grouped event type', eventTypeFilter, 'to:', filterTypes);
-                        }
-                        
-                        filteredEvents = dayEvents.events.filter(event => {
-                            if (!event || !event.type) return false;
-                            
-                            const eventType = event.type.toString().toUpperCase();
-                            
-                            // For PS (Profile Submission) events, only match exact type
-                            if (eventTypeFilter.toUpperCase() === 'PS') {
-                                return eventType === 'PS';
-                            }
-                            
-                            // Check if event type matches any of the filter types
-                            if (filterTypes.includes(eventType)) {
-                                return true;
-                            }
-                            
-                            // Handle consolidated events (e.g., 'IF+NFD')
-                            if (eventType.includes('+')) {
-                                return eventType.split('+')
-                                    .some(type => filterTypes.includes(type));
-                            }
-                            
-                            return false;
-                        });
-                        
-                        console.log(`Found ${filteredEvents.length} events matching type ${eventTypeFilter}`);
+        try {
+            let backendEvents = [];
+
+            if (eventTypeFilter) {
+                // Fetch details only for the selected event type
+                const response = await calendarApi.getCalendarDetails(
+                    dateParam,
+                    eventTypeFilter.toUpperCase()
+                );
+                backendEvents = Array.isArray(response?.results) ? response.results : [];
+            } else {
+                // If no specific type is provided, load all supported event types for that date
+                const eventTypes = ['IF', 'NFD', 'EDJ', 'PS', 'SEL', 'ATND', 'NR', 'INP'];
+                for (const type of eventTypes) {
+                    const response = await calendarApi.getCalendarDetails(dateParam, type);
+                    if (response && Array.isArray(response.results) && response.results.length) {
+                        backendEvents = backendEvents.concat(response.results);
                     }
-                    
-                    console.log('Setting filtered events:', filteredEvents);
-                    // Transform events to candidate format if needed
-                    const transformed = transformEventsToCandidate(filteredEvents);
-                    console.log('Transformed events:', transformed);
-                    setEvents(transformed);
-                    
-                    // Employee names are now included in the backend response
-                } else {
-                    setEvents([]);
                 }
+            }
+
+            if (backendEvents.length) {
+                const transformed = transformEventsToCandidate(backendEvents);
+                setEvents(transformed);
             } else {
                 setEvents([]);
             }
@@ -463,9 +430,19 @@ function CalendarDetailsList() {
                 return 0;
             });
         }
-
         return filtered;
     }, [events, filterType, sortConfig]);
+
+    // Count only rows where current remarks are "Attended" (case-insensitive)
+    const attendedCount = useMemo(() => {
+        if (!Array.isArray(events)) return 0;
+        return events.filter(event => {
+            const remark = (event.selectedClientJob?.remarks || event.remarks || '').toLowerCase();
+            return remark === 'attended';
+        }).length;
+    }, [events]);
+
+    const isAttendedView = (eventTypeFilter || '').toUpperCase() === 'ATND';
 
     // Pagination logic
     const totalPages = Math.ceil(filteredAndSortedEvents.length / itemsPerPage);
@@ -548,7 +525,7 @@ function CalendarDetailsList() {
                         <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg">
                             <Tag size={12} className="text-blue-600" />
                             <span className="text-xs font-medium text-blue-700">
-                                {filteredAndSortedEvents.length} of {events.length} Events
+                                {isAttendedView ? attendedCount : filteredAndSortedEvents.length} of {events.length} Events
                             </span>
                         </div>
                     </div>

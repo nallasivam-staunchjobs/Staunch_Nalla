@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { candidates as candidatesAPI } from '../../api/api';
 import CandidateTable from './components/CandidateTable';
+import FeedbackModal from '../NewDtr/components/FeedbackModal';
 
 const JobRowsReport = () => {
   const [searchParams] = useSearchParams();
@@ -13,6 +14,10 @@ const JobRowsReport = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('Active');
+
+  // Feedback modal state (reuse shared FeedbackModal component)
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [selectedCandidateForFeedback, setSelectedCandidateForFeedback] = useState(null);
 
   // Base filters used for data fetch (omit transfer_status so we can get both sets at once)
   const baseFilters = useMemo(() => {
@@ -72,7 +77,7 @@ const JobRowsReport = () => {
           const state = row.state || base.state;
           const email = base.email || row.email;
           const mobile1 = base.mobile1 || base.phone_number || row.mobile1;
-          return {
+          const candidateRow = {
             ...base,
             // Standardized candidate fields
             candidateId: candidateId,
@@ -120,6 +125,21 @@ const JobRowsReport = () => {
             designation: row.designation || base.designation,
             remarks: row.remarks || base.remarks,
           };
+
+          // Ensure FeedbackModal has consistent client job context
+          // Attach a simple clientJob object with id for easier access
+          return {
+            ...candidateRow,
+            clientJob: {
+              id: row.client_job_id || row.id || candidateRow.selectedClientJob?.id || null,
+              client_name: candidateRow.selectedClientJob?.client_name || candidateRow.client_name,
+              designation: candidateRow.selectedClientJob?.designation || candidateRow.designation,
+              remarks: candidateRow.selectedClientJob?.remarks || candidateRow.remarks,
+              next_follow_up_date: candidateRow.selectedClientJob?.next_follow_up_date,
+              expected_joining_date: candidateRow.selectedClientJob?.expected_joining_date,
+              interview_fixed_date: candidateRow.selectedClientJob?.interview_fixed_date,
+            }
+          };
         };
 
         setActiveCandidates(ar.map(toCandidateRow));
@@ -157,6 +177,62 @@ const JobRowsReport = () => {
   const currentCandidates = activeTab === 'Active' ? activeCandidates : inactiveCandidates;
   const activeCount = activeCandidates.length;
   const inactiveCount = inactiveCandidates.length;
+
+  // Open FeedbackModal for a candidate row
+  const handleCandidateNameClick = (candidate) => {
+    if (!candidate) return;
+
+    // Derive clientJobId from flattened row data
+    const clientJobId = candidate.selectedClientJob?.id || candidate.clientJob?.id || candidate.client_job_id || candidate.clientJobId;
+
+    const candidateForFeedback = {
+      ...candidate,
+      // Core IDs that FeedbackModal expects
+      id: candidate.candidateId || candidate.candidate_id || candidate.id,
+      candidateId: candidate.candidateId || candidate.candidate_id || candidate.id,
+
+      // Basic identity fields
+      name: candidate.candidateName || candidate.candidate_name || candidate.name,
+      candidateName: candidate.candidateName || candidate.candidate_name || candidate.name,
+
+      // Contact info
+      phone: candidate.mobile1 || candidate.phone_number || candidate.phoneNumber || candidate.contactNumber1,
+      mobile1: candidate.mobile1 || candidate.phone_number || candidate.phoneNumber || candidate.contactNumber1,
+      contactNumber1: candidate.mobile1 || candidate.phone_number || candidate.phoneNumber || candidate.contactNumber1,
+      email: candidate.email,
+
+      // Executive info
+      executiveName: candidate.executive_display || candidate.executive_name || candidate.employeeName,
+      executive_name: candidate.executive_display || candidate.executive_name || candidate.employeeName,
+
+      // Client job context
+      clientJobId: clientJobId,
+      selectedClientJob: candidate.selectedClientJob || candidate.clientJob || null,
+      clientName: candidate.selectedClientJob?.client_name || candidate.selectedClientJob?.clientName || candidate.client_name || candidate.clientName,
+
+      // Backend-style data bundle
+      backendData: candidate.backendData || {
+        id: candidate.candidateId || candidate.candidate_id || candidate.id,
+        candidate_name: candidate.candidateName || candidate.candidate_name || candidate.name,
+        executive_name: candidate.executive_display || candidate.executive_name || candidate.employeeName,
+        mobile1: candidate.mobile1 || candidate.phone_number || candidate.phoneNumber || candidate.contactNumber1,
+        email: candidate.email,
+        city: candidate.city,
+      },
+
+      // Source marker for debugging
+      _source: 'JobRowsReport',
+      _forceRefresh: Date.now(),
+    };
+
+    setSelectedCandidateForFeedback(candidateForFeedback);
+    setIsFeedbackModalOpen(true);
+  };
+
+  const handleCloseFeedbackModal = () => {
+    setIsFeedbackModalOpen(false);
+    setSelectedCandidateForFeedback(null);
+  };
 
   return (
     <div className="p-3">
@@ -202,8 +278,20 @@ const JobRowsReport = () => {
             emptyMessage="No rows found for the selected filters"
             showTransferDate={false}
             showPreviousOwners={activeTab === 'Inactive'}
+            // Open shared FeedbackModal when user clicks candidate name / view action
+            onCandidateNameClick={handleCandidateNameClick}
+            onViewFeedback={handleCandidateNameClick}
           />
         </div>
+      )}
+      {/* Feedback Modal for JobRowsReport */}
+      {isFeedbackModalOpen && selectedCandidateForFeedback && (
+        <FeedbackModal
+          isOpen={isFeedbackModalOpen}
+          onClose={handleCloseFeedbackModal}
+          candidate={selectedCandidateForFeedback}
+          clientJobId={selectedCandidateForFeedback?.clientJobId || selectedCandidateForFeedback?.selectedClientJob?.id || null}
+        />
       )}
     </div>
   );

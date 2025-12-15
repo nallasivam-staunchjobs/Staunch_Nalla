@@ -1474,12 +1474,12 @@ class ClientJob(AuditFields):
         )
         
         # Add initial feedback entry
-        new_client_job.add_feedback(
-            feedback_text=f"Profile cloned from existing candidate for new client {new_client_name}",
-            remarks="new profile",
-            entry_by=created_by,
-            call_status="profile creation"
-        )
+        # new_client_job.add_feedback(
+        #     feedback_text=f"Profile cloned from existing candidate for new client {new_client_name}",
+        #     remarks="new profile",
+        #     entry_by=created_by,
+        #     call_status="profile creation"
+        # )
         
         print(f" Cloned candidate {self.candidate.candidate_name} for client {new_client_name}")
         print(f" New profile number: {new_profile_number}")

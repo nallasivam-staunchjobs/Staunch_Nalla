@@ -19,6 +19,29 @@ const parseFormattedNumber = (str) => {
   return str.replace(/,/g, '');
 };
 
+// Unified toast helper
+const showToast = (message, type = 'success') => {
+  const toastOptions = {
+    position: 'top-center',
+    duration: 3000,
+    style: {
+      minWidth: '250px',
+      textAlign: 'center',
+      borderRadius: '8px',
+      padding: '12px 20px',
+      fontWeight: 500,
+    },
+  };
+
+  if (type === 'success') {
+    toast.success(message, toastOptions);
+  } else if (type === 'error') {
+    toast.error(message, toastOptions);
+  } else {
+    toast(message, toastOptions);
+  }
+};
+
 const inputStyle = 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
 const labelStyle = 'block text-left text-sm font-medium text-gray-700 mb-1';
 const sectionTitleStyle = 'text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200';
@@ -387,20 +410,20 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
 
     if (!formData.candidateId) {
       console.error('No candidate ID found');
-      toast.error('Error: No candidate selected');
+      showToast('Error: No candidate selected', 'error');
       return;
     }
 
     // Require joining date for non-Abscond profiles
     if (formData.profileStatus !== 'Abscond' && !formData.joiningDate) {
-      toast.error('Joining Date is required');
+      showToast('Joining Date is required', 'error');
       setIsLoading(false);
       return;
     }
 
     // Require feedback for all submissions
     if (!formData.feedback || !formData.feedback.trim()) {
-      toast.error('Feedback is required');
+      showToast('Feedback is required', 'error');
       setIsLoading(false);
       return;
     }
@@ -417,19 +440,19 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
 
       // Require that the currently selected input (% or ₹) has a value.
       if (percentOrAmount === '%' && !hasPercentage) {
-        toast.error('Please enter a percentage value');
+        showToast('Please enter a percentage value', 'error');
         setIsLoading(false);
         return;
       }
 
       if (percentOrAmount === '₹' && !hasAmount) {
-        toast.error('Please enter a revenue amount');
+        showToast('Please enter a revenue amount', 'error');
         setIsLoading(false);
         return;
       }
 
       if (offer <= 0 && (percentage > 0 || amount > 0 || revenue > 0)) {
-        toast.error('Please enter a valid Offer CTC before calculating revenue');
+        showToast('Please enter a valid Offer CTC before calculating revenue', 'error');
         setIsLoading(false);
         return;
       }
@@ -437,7 +460,7 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
       if (offer > 0) {
         if (percentOrAmount === '%') {
           if (percentage <= 0 || percentage > 100) {
-            toast.error('Please enter a valid percentage between 0 and 100');
+            showToast('Please enter a valid percentage between 0 and 100', 'error');
             setIsLoading(false);
             return;
           }
@@ -446,19 +469,19 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
           const diff = Math.abs(expectedRevenue - revenue);
 
           if (diff > 1) {
-            toast.error('Revenue does not match Offer CTC and percentage');
+            showToast('Revenue does not match Offer CTC and percentage', 'error');
             setIsLoading(false);
             return;
           }
         } else if (percentOrAmount === '₹') {
           if (amount <= 0) {
-            toast.error('Please enter a valid revenue amount');
+            showToast('Please enter a valid revenue amount', 'error');
             setIsLoading(false);
             return;
           }
 
           if (amount > offer) {
-            toast.error('Revenue amount cannot be greater than Offer CTC');
+            showToast('Revenue amount cannot be greater than Offer CTC', 'error');
             setIsLoading(false);
             return;
           }
@@ -466,7 +489,7 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
           const diff = Math.abs(amount - revenue);
 
           if (diff > 1) {
-            toast.error('Revenue should be equal to entered amount');
+            showToast('Revenue should be equal to entered amount', 'error');
             setIsLoading(false);
             return;
           }
@@ -578,7 +601,7 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
       }
 
       // Show success message and close modal
-      toast.success(`Revenue has been marked for ${formData.candidate || ''}`);
+      showToast(`Revenue has been marked for ${formData.candidate || ''}`, 'success');
 
       // Navigate to itbrview after a short delay
       setTimeout(() => {
@@ -611,7 +634,7 @@ const EnhancedStatusForm = ({ candidate, onClose, onStatusChange }) => {
 
     } catch (err) {
       console.error("Error saving revenue", err);
-      toast.error('Failed to save revenue data. Please try again.');
+      showToast('Failed to save revenue data. Please try again.', 'error');
     }
   };
 

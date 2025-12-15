@@ -116,10 +116,18 @@ export const assignmentService = {
       if (userInfo) {
         const parsedUserInfo = JSON.parse(userInfo);
         console.log('✅ Current user info from localStorage:', parsedUserInfo);
-        
+
+        const storedRole =
+          parsedUserInfo.userRole ||
+          parsedUserInfo.role ||
+          localStorage.getItem('userRole') ||
+          localStorage.getItem('temp_auth_userRole') ||
+          null;
+
         return {
           employeeCode: parsedUserInfo.employeeCode,
-          firstName: parsedUserInfo.firstName || parsedUserInfo.name
+          firstName: parsedUserInfo.firstName || parsedUserInfo.name,
+          userRole: storedRole,
         };
       }
 
@@ -128,19 +136,23 @@ export const assignmentService = {
       const firstName = localStorage.getItem('firstName');
       const employeeCode = localStorage.getItem('employeeCode');
       const phone = localStorage.getItem('phone');
+      const storedRole =
+        localStorage.getItem('userRole') ||
+        localStorage.getItem('temp_auth_userRole') ||
+        null;
 
       if (token && firstName && employeeCode) {
-        console.log('✅ Current user info from localStorage keys:', { firstName, employeeCode, phone });
-        
+        console.log('✅ Current user info from localStorage keys:', { firstName, employeeCode, phone, userRole: storedRole });
+
         return {
           employeeCode: employeeCode,
-          firstName: firstName
+          firstName: firstName,
+          userRole: storedRole,
         };
       }
 
       // If no user info found, throw error
       throw new Error('User info not found. Please login again.');
-      
     } catch (error) {
       console.error('❌ Failed to get current user info:', error);
       throw new Error('Unable to get current user information. Please login again.');

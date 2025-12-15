@@ -283,7 +283,7 @@ const FeedbackModal = ({ isOpen, onClose, candidate, clientJobId = null }) => {
                         return false;
                     }
 
-                    // If _showAllFeedback flag is set (from DailyReports), show all client jobs with any feedback
+                    // If _showAllFeedback flag is set (from DailyReports), show all client jobs
                     if (candidate._showAllFeedback) {
                         return true;
                     }
@@ -311,240 +311,31 @@ const FeedbackModal = ({ isOpen, onClose, candidate, clientJobId = null }) => {
 
                 for (const clientJob of validClientJobs) {
                     try {
-                        // Parse feedback directly from raw feedback string with enhanced parsing
-                        if (clientJob.feedback) {
-                            // Split by multiple possible separators and clean up
-                            let rawEntries = [];
+                        // Use backend get-feedback-entries endpoint for each client job
+                        const feedbackResponse = await clientJobs.getFeedbackEntries(clientJob.id);
+                        const entries = (feedbackResponse && Array.isArray(feedbackResponse.feedback_entries))
+                            ? feedbackResponse.feedback_entries
+                            : [];
 
-                            // First try splitting by ;;;;; (5 semicolons)
-                            if (clientJob.feedback.includes(';;;;;')) {
-                                rawEntries = clientJob.feedback.split(';;;;;');
-                            } else {
-                                // Fallback: split by single semicolon but be smarter about it
-                                // Some entries might have semicolons within them, so we need to be careful
-                                const allParts = clientJob.feedback.split(';');
-                                rawEntries = [];
-                                let currentEntry = '';
-
-                                for (let i = 0; i < allParts.length; i++) {
-                                    const part = allParts[i].trim();
-                                    if (!part) continue;
-
-                                    // Check if this part looks like the start of a new entry
-                                    // Exclude entries that start with just a date (malformed entries)
-                                    const startsWithDate = part.match(/^\d{2}-\d{2}-\d{4}/);
-                                    const isNewEntry = (part.startsWith('Feedback-') ||
-                                        part.startsWith('Profile assigned')) ||
-                                        (!startsWithDate && part.includes(':') && part.match(/\d{2}-\d{2}-\d{4}/)); // Simple format with date but not starting with date
-
-                                    if (isNewEntry && currentEntry) {
-                                        // Save the previous entry and start a new one
-                                        rawEntries.push(currentEntry.trim());
-                                        currentEntry = part;
-                                    } else if (isNewEntry) {
-                                        // Start a new entry
-                                        currentEntry = part;
-                                    } else {
-                                        // Continue building the current entry (or skip if it's a malformed date-only entry)
-                                        if (!startsWithDate) {
-                                            currentEntry += (currentEntry ? ';' : '') + part;
-                                        }
-                                    }
-                                }
-
-                                // Don't forget the last entry
-                                if (currentEntry) {
-                                    rawEntries.push(currentEntry.trim());
-                                }
-                            }
-
-                            const entries = rawEntries
-                                .filter(entry => entry.trim())
-                                .map(entry => entry.replace(/^;+|^:+/, '').trim()) // Remove leading semicolons and colons
-                                .filter(entry => entry.trim()) // Filter again after cleanup
-                                .map((entry, index) => {
-                                    const parsed = {};
-
-                                    // Handle different feedback formats
-                                    let feedbackText = '';
-
-                                    // Format 1: Standard "Feedback-text : NFD-date" format (including double dash)
-                                    let feedbackMatch = entry.match(/Feedback-\s*(.+?):\s*NFD-/);
-                                    if (feedbackMatch) {
-                                        feedbackText = feedbackMatch[1].trim();
-                                        // Handle double dash format like "Feedback- -Not willing for Agency"
-                                        if (feedbackText.startsWith('-')) {
-                                            feedbackText = feedbackText.substring(1).trim();
-                                        }
-                                    } else if (entry.includes('Profile assigned from')) {
-                                        // Format 2: Assignment format "Profile assigned from X to Y"
-                                        const assignMatch = entry.match(/(Profile assigned from[^:]+)/);
-                                        if (assignMatch) {
-                                            feedbackText = assignMatch[1].trim();
-                                        }
-                                    } else if (entry.match(/^NFD-/)) {
-                                        // Format 3: Entry starts with NFD- (no feedback text, only metadata)
-                                        // Extract feedback from remarks field instead
-                                        const remarksMatch = entry.match(/Remarks-([^:]+)/);
-                                        if (remarksMatch) {
-                                            feedbackText = remarksMatch[1].trim();
-                                        } else {
-                                            // Skip entries with no feedback and no remarks
-                                            return null;
-                                        }
-                                    } else if (entry.match(/^\d{2}-\d{2}-\d{4}/)) {
-                                        // Format 5: Entry starts with a date (malformed entry)
-                                        // Skip these entries as they don't have proper feedback text
-                                        return null;
-                                    } else {
-                                        // Format 4: Simple format "text:name:date"
-                                        const simpleMatch = entry.match(/^([^:]+):/);
-                                        if (simpleMatch && simpleMatch[1].trim()) {
-                                            feedbackText = simpleMatch[1].trim();
-                                            // Check if feedback text is just a date - skip if so
-                                            if (feedbackText.match(/^\d{2}-\d{2}-\d{4}/)) {
-                                                return null;
-                                            }
-                                        } else {
-                                            // Skip entries with no identifiable feedback
-                                            return null;
-                                        }
-                                    }
-
-                                    // Clean up feedback text
-                                    if (feedbackText.startsWith('- ')) {
-                                        feedbackText = feedbackText.substring(2).trim();
-                                    } else if (feedbackText.startsWith('-')) {
-                                        feedbackText = feedbackText.substring(1).trim();
-                                    }
-
-                                    // Skip empty feedback
-                                    if (!feedbackText) {
-                                        return null;
-                                    }
-
-                                    parsed.feedback = feedbackText;
-
-
-
-                                    // Extract NFD date
-                                    const nfdMatch = entry.match(/NFD-([^:]+)/);
-                                    parsed.nfd_date = nfdMatch ? nfdMatch[1].trim() : '';
-
-                                    // Extract EJD date
-                                    const ejdMatch = entry.match(/EJD-([^:]+)/);
-                                    parsed.ejd_date = ejdMatch ? ejdMatch[1].trim() : '';
-
-                                    // Extract IFD date (if present)
-                                    const ifdMatch = entry.match(/IFD-([^:]+)/);
-                                    parsed.ifd_date = ifdMatch ? ifdMatch[1].trim() : '';
-
-                                    // Extract call status
-                                    const callStatusMatch = entry.match(/CallStatus-([^:]+)/);
-                                    parsed.call_status = callStatusMatch ? callStatusMatch[1].trim() : '';
-
-                                    // Extract remarks
-                                    const remarksMatch = entry.match(/Remarks-([^:]+)/);
-                                    parsed.remarks = remarksMatch ? remarksMatch[1].trim() : '';
-
-                                    // Extract entry by (person who made the entry)
-                                    let entryBy = '';
-                                    const entryByPattern = entry.match(/Entry By-\s*([^:]+)/);
-                                    if (entryByPattern) {
-                                        entryBy = entryByPattern[1].trim();
-                                    } else {
-                                        // Try alternative formats like "name:date" at the end
-                                        const altEntryMatch = entry.match(/:([^:]+):(\d{2}-\d{2}-\d{4})/);
-                                        if (altEntryMatch) {
-                                            entryBy = altEntryMatch[1].trim();
-                                        }
-                                    }
-                                    parsed.executive_name = entryBy;
-
-                                    // Extract entry time with multiple format support
-                                    let entryTimeStr = '';
-                                    const entryTimeMatch = entry.match(/Entry Time([^;]+)/);
-                                    if (entryTimeMatch) {
-                                        entryTimeStr = entryTimeMatch[1].trim();
-
-                                        // TRIM: Extract only the datetime part (DD-MM-YYYY HH:MM:SS)
-                                        // This handles old corrupted data that has extra metadata appended
-                                        const datetimeMatch = entryTimeStr.match(/(\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2})/);
-                                        if (datetimeMatch) {
-                                            entryTimeStr = datetimeMatch[1];
-                                        }
-                                    } else {
-                                        // Try alternative formats like "dd-mm-yyyy hh:mm:ss" at the end
-                                        const altTimeMatch = entry.match(/(\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2})$/);
-                                        if (altTimeMatch) {
-                                            entryTimeStr = altTimeMatch[1].trim();
-                                        } else {
-                                            // Try simple date format "dd-mm-yyyy"
-                                            const simpleDateMatch = entry.match(/(\d{2}-\d{2}-\d{4})$/);
-                                            if (simpleDateMatch) {
-                                                entryTimeStr = simpleDateMatch[1].trim();
-                                            }
-                                        }
-                                    }
-
-                                    // Parse and format time in Indian format with AM/PM
-                                    let displayTime = entryTimeStr;  // Format for display
-
-                                    if (entryTimeStr) {
-                                        // Handle format like "26-09-2025 12:52:48"
-                                        const timeMatch = entryTimeStr.match(/(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
-                                        if (timeMatch) {
-                                            const [, day, month, year, hour, minute, second] = timeMatch;
-                                            // Create proper ISO date string for parsing
-                                            const isoTimeStr = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
-
-                                            try {
-                                                const date = new Date(isoTimeStr);
-                                                if (!isNaN(date.getTime())) {
-                                                    // Format in Indian timezone with AM/PM for display
-                                                    const options = {
-                                                        timeZone: 'Asia/Kolkata',
-                                                        year: 'numeric',
-                                                        month: '2-digit',
-                                                        day: '2-digit',
-                                                        hour: '2-digit',
-                                                        minute: '2-digit',
-                                                        second: '2-digit',
-                                                        hour12: true // This adds AM/PM
-                                                    };
-                                                    displayTime = date.toLocaleString('en-IN', options);
-                                                }
-                                            } catch (error) {
-                                                // Keep original format if parsing fails
-                                            }
-                                        }
-                                    }
-
-                                    parsed.entry_time = displayTime;        // For display
-
-                                    // Entry by already extracted above, no need to duplicate
-
-                                    return parsed;
-                                })
-                                .filter(entry => entry !== null && entry.feedback && entry.feedback.trim() !== ''); // Remove null and empty feedback entries
-
-
-                            // Add client job info to each feedback entry
-                            const entriesWithJobInfo = entries.map(entry => ({
-                                ...entry,
-                                clientJobId: clientJob.id,
-                                clientName: clientJob.client_name,
-                                designation: clientJob.designation
-                            }));
-
-                            allFeedbackEntries = [...allFeedbackEntries, ...entriesWithJobInfo];
+                        if (!entries || entries.length === 0) {
+                            continue;
                         }
+
+                        // Add client job info to each feedback entry
+                        const entriesWithJobInfo = entries.map(entry => ({
+                            ...entry,
+                            clientJobId: clientJob.id,
+                            clientName: clientJob.client_name,
+                            designation: clientJob.designation
+                        }));
+
+                        allFeedbackEntries = [...allFeedbackEntries, ...entriesWithJobInfo];
                     } catch (error) {
                         // More specific error handling
                         if (error.response && error.response.status === 404) {
                             console.warn(`ClientJob ${clientJob.id} not found on server, skipping`);
                         } else {
-                            console.warn(`Error fetching feedback for ClientJob ${clientJob.id}:`, error.message);
+                            console.warn(`Error fetching feedback entries for ClientJob ${clientJob.id}:`, error.message);
                         }
                         // Continue processing other client jobs
                     }
@@ -1109,9 +900,18 @@ const FeedbackModal = ({ isOpen, onClose, candidate, clientJobId = null }) => {
                                     </div>
                                     <span className="text-emerald-600 text-xs font-medium lg:ml-3 self-start lg:self-auto flex-shrink-0">
                                         {(() => {
-                                            const executiveCode = firstFeedback?.executive_name || candidate?.backendData?.executive_name;
-                                            const executiveName = getEmployeeNameFromCache(executiveCode) || executiveCode || 'Admin';
-                                            return executiveName;
+                                            // Show only the entry-by user for Profile Created section,
+                                            // falling back to profile creator or candidate creator if needed
+                                            const entryCode =
+                                                firstFeedback?.executive_name ||
+                                                firstFeedback?.profile_created_by ||
+                                                candidate?.backendData?.executive_name;
+
+                                            const entryName = entryCode
+                                                ? (getEmployeeNameFromCache(entryCode) || entryCode)
+                                                : '';
+
+                                            return entryName;
                                         })()}
                                     </span>
                                 </div>

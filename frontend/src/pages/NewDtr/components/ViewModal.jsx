@@ -681,8 +681,8 @@ const CandidateDetailsModal = ({
 
   // Client Job Modal State
   const [isClientJobModalOpen, setIsClientJobModalOpen] = useState(false);
-  const [clientJobCallStatus, setClientJobCallStatus] = useState(''); // 'call answered' or 'call not answered'
-  const [clientJobFormSubmitted, setClientJobFormSubmitted] = useState(false); // Track if form has been submitted
+  const [clientJobCallStatus, setClientJobCallStatus] = useState(''); 
+  const [clientJobFormSubmitted, setClientJobFormSubmitted] = useState(false); 
   const [showProfileSubmissionDeleteModal, setShowProfileSubmissionDeleteModal] = useState(false);
   const [showAttendDeleteModal, setShowAttendDeleteModal] = useState(false);
   const [profileSubmissionTouched, setProfileSubmissionTouched] = useState(false);
