@@ -1970,6 +1970,11 @@ class CandidateStatusHistory(models.Model):
     team_id = models.IntegerField(blank=True, null=True)
     employee_id = models.CharField(max_length=50, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, help_text="Exact timestamp when record was created")
+    # Soft-delete metadata
+    is_deleted = models.BooleanField(default=False, help_text="Soft delete flag")
+    deleted_at = models.DateTimeField(blank=True, null=True, help_text="When this row was soft-deleted")
+    deleted_by = models.CharField(max_length=50, blank=True, null=True, help_text="Employee code who deleted this row")
+    delete_reason = models.TextField(blank=True, null=True, help_text="Reason for soft delete")
     
 
     class Meta:
@@ -1981,6 +1986,7 @@ class CandidateStatusHistory(models.Model):
             models.Index(fields=['change_date', 'remarks'], name='idx_date_remarks'),
             models.Index(fields=['created_by'], name='idx_created_by'),
             models.Index(fields=['client_name'], name='idx_client_name'),
+            models.Index(fields=['is_deleted'], name='idx_is_deleted'),
         ]
         ordering = ['-change_date', '-created_at']
 
@@ -2143,7 +2149,8 @@ class CandidateStatusHistory(models.Model):
                 exists = cls.objects.filter(
                     candidate_id=candidate_id,
                     remarks="Interested",
-                    change_date=change_date
+                    change_date=change_date,
+                    is_deleted=False
                 ).exists()
                 if exists:
                     print(f" 'Interested' status already exists for candidate {candidate_id} on {change_date}")
@@ -2157,7 +2164,8 @@ class CandidateStatusHistory(models.Model):
                     candidate_id=candidate_id,
                     client_job_id=client_job_id,
                     change_date=change_date,
-                    attend_flag=True
+                    attend_flag=True,
+                    is_deleted=False
                 ).first()
                 if existing_attendance:
                     # Demote this entry to a non-attendance status row while keeping
@@ -2169,7 +2177,8 @@ class CandidateStatusHistory(models.Model):
                 candidate_id=candidate_id,
                 remarks=remarks,
                 client_job_id=client_job_id,
-                change_date=change_date
+                change_date=change_date,
+                is_deleted=False
             ).first()
             
             if existing_entry:
@@ -2178,10 +2187,13 @@ class CandidateStatusHistory(models.Model):
 
             # Handle profile submission
             if profile_submission == 1:
+                # Enforce uniqueness per (candidate, client_job, employee)
                 has_previous_submission = cls.objects.filter(
                     candidate_id=candidate_id,
                     client_job_id=client_job_id,
-                    profile_submission=1
+                    employee_id=employee_id if employee_id else created_by,
+                    profile_submission=1,
+                    is_deleted=False
                 ).exists()
                 
                 if has_previous_submission:
@@ -2233,7 +2245,7 @@ class CandidateStatusHistory(models.Model):
         Returns:
             QuerySet: All status history entries for the candidate, ordered by date
         """
-        return cls.objects.filter(candidate_id=candidate_id).order_by('-change_date', '-created_at')
+        return cls.objects.filter(candidate_id=candidate_id, is_deleted=False).order_by('-change_date', '-created_at')
 
     @classmethod
     def get_calendar_data(cls, candidate_id, year=None, month=None):
@@ -2248,7 +2260,7 @@ class CandidateStatusHistory(models.Model):
         Returns:
             dict: Calendar data with dates as keys and status info as values
         """
-        queryset = cls.objects.filter(candidate_id=candidate_id)
+        queryset = cls.objects.filter(candidate_id=candidate_id, is_deleted=False)
         
         if year:
             queryset = queryset.filter(change_date__year=year)

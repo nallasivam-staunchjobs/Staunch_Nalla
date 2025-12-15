@@ -795,9 +795,10 @@ class CandidateViewSet(viewsets.ModelViewSet):
                         change_dt = client_job_data.get('profile_submission_date') or timezone.now().date()
                         # Use employee code for status history employee_id
                         emp_code_val = exec_code
+                        status_remarks = 'Profile Submitted' if ps_val == 1 else 'Interested'
                         CandidateStatusHistory.create_status_entry(
                             candidate_id=candidate.id,
-                            remarks='Interested',
+                            remarks=status_remarks,
                             change_date=change_dt,
                             created_by=exec_code,
                             extra_notes='Initial candidate creation',
@@ -1269,7 +1270,7 @@ class CandidateViewSet(viewsets.ModelViewSet):
                         except ValueError:
                             logger.warning(f"Invalid to_date format for history: {to_date}")
 
-                    history_ids = list(CandidateStatusHistory.objects.filter(history_filters)
+                    history_ids = list(CandidateStatusHistory.objects.filter(history_filters, is_deleted=False)
                                        .values_list('candidate_id', flat=True)
                                        .distinct())
                     if history_ids:
@@ -2603,7 +2604,7 @@ class CandidateViewSet(viewsets.ModelViewSet):
             
             # Add Status History Events
             try:
-                status_history_query = CandidateStatusHistory.objects.select_related()
+                status_history_query = CandidateStatusHistory.objects.select_related().filter(is_deleted=False)
                 
                 if start_date and end_date:
                     status_history_query = status_history_query.filter(
@@ -3989,7 +3990,8 @@ class ClientJobViewSet(viewsets.ModelViewSet):
                 has_profile_submitted = CandidateStatusHistory.objects.filter(
                     candidate_id=client_job.candidate.id,
                     client_job_id=client_job.id,
-                    remarks='Profile Submitted'
+                    remarks='Profile Submitted',
+                    is_deleted=False
                 ).exists()
                 if not has_profile_submitted:
                     created_by = get_current_user_employee_code(self.request.user)
@@ -4076,21 +4078,60 @@ class ClientJobViewSet(viewsets.ModelViewSet):
         # Save the updated instance
         client_job = serializer.save()
 
-        # Handle profile submission status history
-        new_profile_submission = 1 if bool(getattr(client_job, 'profile_submission', 0)) else 0
-        if new_profile_submission == 1:
+        # Handle profile submission status history ONLY when explicitly sent
+        request_data = self.request.data
+        explicit_ps = ('profile_submission' in request_data) and (request_data.get('profile_submission') is not None)
+        if explicit_ps:
             created_by = get_current_user_employee_code(self.request.user)
+            new_profile_submission = 1 if bool(getattr(client_job, 'profile_submission', 0)) else 0
             change_date = client_job.profile_submission_date or timezone.now().date()
-            CandidateStatusHistory.create_status_entry(
-                candidate_id=client_job.candidate.id,
-                remarks='Profile Submitted',
-                change_date=change_date,
-                created_by=created_by,
-                client_job_id=client_job.id,
-                vendor_id=None,
-                client_name=client_job.client_name if client_job else None,
-                profile_submission=1
-            )
+
+            if new_profile_submission == 1:
+                # 7-day refresh rule per (candidate, client_job, employee)
+                latest = CandidateStatusHistory.objects.filter(
+                    candidate_id=client_job.candidate.id,
+                    client_job_id=client_job.id,
+                    employee_id=created_by,
+                    profile_submission=1,
+                    is_deleted=False
+                ).order_by('-change_date', '-created_at').first()
+
+                should_create = False
+                if not latest:
+                    should_create = True
+                else:
+                    try:
+                        delta_days = (change_date - latest.change_date).days
+                        should_create = delta_days >= 7
+                    except Exception:
+                        should_create = False
+
+                if should_create:
+                    CandidateStatusHistory.create_status_entry(
+                        candidate_id=client_job.candidate.id,
+                        remarks='Profile Submitted',
+                        change_date=change_date,
+                        created_by=created_by,
+                        client_job_id=client_job.id,
+                        vendor_id=None,
+                        client_name=client_job.client_name if client_job else None,
+                        profile_submission=1,
+                        employee_id=created_by
+                    )
+            elif old_profile_submission == 1 and new_profile_submission == 0:
+                # Soft delete previously created 'Profile Submitted' history rows when cleared explicitly
+                CandidateStatusHistory.objects.filter(
+                    candidate_id=client_job.candidate.id,
+                    client_job_id=client_job.id,
+                    profile_submission=1,
+                    is_deleted=False,
+                    employee_id=created_by
+                ).update(
+                    is_deleted=True,
+                    deleted_at=timezone.now(),
+                    deleted_by=created_by,
+                    delete_reason='Cleared via Client Job modal'
+                )
 
         # Handle attendance status history (idempotent)
         attend_changed = client_job.attend != old_attend or client_job.attend_date != old_attend_date
@@ -4106,7 +4147,8 @@ class ClientJobViewSet(viewsets.ModelViewSet):
                 candidate_id=client_job.candidate.id,
                 client_job_id=client_job.id,
                 change_date=change_date,
-                attend_flag=client_job.attend
+                attend_flag=client_job.attend,
+                is_deleted=False
             ).exists()
             if not exists:
                 CandidateStatusHistory.create_status_entry(
@@ -4133,6 +4175,23 @@ class ClientJobViewSet(viewsets.ModelViewSet):
                     client_name=client_job.client_name if client_job else None,
                     profile_submission=None,
                     attend_flag=False
+                )
+
+            # 3) If Attend was cleared (True -> False or date removed), soft delete the previous Attended history
+            if bool(old_attend) and (not client_job.attend or client_job.attend_date is None):
+                qs = CandidateStatusHistory.objects.filter(
+                    candidate_id=client_job.candidate.id,
+                    client_job_id=client_job.id,
+                    attend_flag=True,
+                    is_deleted=False
+                )
+                if old_attend_date:
+                    qs = qs.filter(change_date=old_attend_date)
+                qs.update(
+                    is_deleted=True,
+                    deleted_at=timezone.now(),
+                    deleted_by=get_current_user_employee_code(self.request.user),
+                    delete_reason='Attend cleared via Client Job modal'
                 )
 
         # Check if this update should generate feedback entry
@@ -4323,27 +4382,67 @@ class ClientJobViewSet(viewsets.ModelViewSet):
             
             # Refresh from database to ensure we have latest data
             client_job.refresh_from_db()
-            # If profile_submission turned true with this feedback, record latest status history
+            # Profile submission history should be processed ONLY when explicitly sent
             try:
-                new_profile_submission = 1 if bool(getattr(client_job, 'profile_submission', 0)) else 0
-                if new_profile_submission == 1:
+                request_data = request.data
+                explicit_ps = ('profile_submission' in request_data) and (request_data.get('profile_submission') is not None)
+                if explicit_ps:
                     created_by = get_current_user_employee_code(request.user)
+                    new_profile_submission = 1 if bool(getattr(client_job, 'profile_submission', 0)) else 0
                     change_date = client_job.profile_submission_date or timezone.now().date()
-                    CandidateStatusHistory.create_status_entry(
-                        candidate_id=client_job.candidate.id,
-                        remarks='Profile Submitted',
-                        change_date=change_date,
-                        created_by=created_by,
-                        client_job_id=client_job.id,
-                        vendor_id=None,
-                        client_name=client_job.client_name if client_job else None,
-                        profile_submission=1
-                    )
+
+                    if new_profile_submission == 1:
+                        # 7-day refresh rule per (candidate, client_job, employee)
+                        latest = CandidateStatusHistory.objects.filter(
+                            candidate_id=client_job.candidate.id,
+                            client_job_id=client_job.id,
+                            employee_id=created_by,
+                            profile_submission=1,
+                            is_deleted=False
+                        ).order_by('-change_date', '-created_at').first()
+
+                        should_create = False
+                        if not latest:
+                            should_create = True
+                        else:
+                            try:
+                                # If selected change_date is at least 7 days after the latest
+                                delta_days = (change_date - latest.change_date).days
+                                should_create = delta_days >= 7
+                            except Exception:
+                                should_create = False
+
+                        if should_create:
+                            CandidateStatusHistory.create_status_entry(
+                                candidate_id=client_job.candidate.id,
+                                remarks='Profile Submitted',
+                                change_date=change_date,
+                                created_by=created_by,
+                                client_job_id=client_job.id,
+                                vendor_id=None,
+                                client_name=client_job.client_name if client_job else None,
+                                profile_submission=1,
+                                employee_id=created_by
+                            )
+                    elif old_profile_submission == 1 and new_profile_submission == 0:
+                        # Soft delete previously created 'Profile Submitted' history rows when cleared explicitly
+                        CandidateStatusHistory.objects.filter(
+                            candidate_id=client_job.candidate.id,
+                            client_job_id=client_job.id,
+                            profile_submission=1,
+                            is_deleted=False,
+                            employee_id=created_by
+                        ).update(
+                            is_deleted=True,
+                            deleted_at=timezone.now(),
+                            deleted_by=created_by,
+                            delete_reason='Cleared via Client Job modal (add-feedback)'
+                        )
             except Exception as hist_err:
                 # Do not fail feedback due to history creation issues
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f"Failed to create Profile Submitted history on add_feedback: {str(hist_err)}")
+                logger.error(f"Failed to process Profile Submitted history on add_feedback: {str(hist_err)}")
             
             # Trigger event update after feedback addition/update
             try:
@@ -6510,7 +6609,8 @@ def create_status_history(request):
             # Check if any previous history entry has profile_submission = 1
             has_previous_submission = CandidateStatusHistory.objects.filter(
                 candidate_id=candidate_id,
-                profile_submission=1
+                profile_submission=1,
+                is_deleted=False
             ).exists()
             
             if has_previous_submission:
@@ -6719,7 +6819,7 @@ def get_status_history_stats(request):
         from datetime import datetime, timedelta
         
         # Build base queryset
-        queryset = CandidateStatusHistory.objects.all()
+        queryset = CandidateStatusHistory.objects.filter(is_deleted=False)
         
         # Date filters
         from_date = request.GET.get('from_date')

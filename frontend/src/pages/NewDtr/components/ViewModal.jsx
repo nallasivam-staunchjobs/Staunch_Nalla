@@ -5,7 +5,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import toast from 'react-hot-toast';
 import { BASE_URL, API_URL } from '../../../api/config';
-import { clientJobs as clientJobsAPI } from '../../../api/api';
+import { clientJobs as clientJobsAPI, candidates } from '../../../api/api';
 import {
   getDisplayExecutiveName,
   fetchEmployeeName,
@@ -685,6 +685,7 @@ const CandidateDetailsModal = ({
   const [clientJobFormSubmitted, setClientJobFormSubmitted] = useState(false); // Track if form has been submitted
   const [showProfileSubmissionDeleteModal, setShowProfileSubmissionDeleteModal] = useState(false);
   const [showAttendDeleteModal, setShowAttendDeleteModal] = useState(false);
+  const [profileSubmissionTouched, setProfileSubmissionTouched] = useState(false);
 
   // API dropdown data state
   const [vendorOptions, setVendorOptions] = useState([]);
@@ -978,6 +979,7 @@ const CandidateDetailsModal = ({
   // Handle Profile Submission change
   const handleProfileSubmissionChange = (value) => {
     const isNewSubmission = value === "Yes" && !clientJobFormData.profileSubmissionDate;
+    setProfileSubmissionTouched(true);
 
     setClientJobFormData(prev => ({
       ...prev,
@@ -994,10 +996,86 @@ const CandidateDetailsModal = ({
     }
   };
 
-  const handleConfirmDeleteProfileSubmission = () => {
-    handleProfileSubmissionChange('');
-    setShowProfileSubmissionDeleteModal(false);
-    toast.success('Profile submission deleted successfully');
+  const handleConfirmDeleteProfileSubmission = async () => {
+    try {
+      // Get the current candidate ID and client job ID
+      const candidateId = selectedCandidate?.candidateId || selectedCandidate?.id;
+      let clientJobId = selectedCandidate?.clientJobId;
+      let clientJob = null;
+      
+      // Find the client job data
+      if (clientJobId && relatedData.clients) {
+        clientJob = relatedData.clients.find(job => job.id === clientJobId);
+      }
+      
+      // If not found by ID, try to find by name and designation
+      if (!clientJob) {
+        clientJob = relatedData.clients?.find(job => 
+          job.client_name === clientJobFormData.clientName && 
+          job.designation === clientJobFormData.designation
+        );
+        
+        if (clientJob) {
+          clientJobId = clientJob.id;
+        } else {
+          throw new Error('Could not find client job. Please try again.');
+        }
+      }
+      
+      if (!clientJob) {
+        throw new Error('Could not find client job data. Please try again.');
+      }
+      
+      // Prepare the update data with all required fields
+      const updateData = {
+        // Required fields
+        candidate: clientJob.candidate || candidateId,
+        client_name: clientJob.client_name || clientJobFormData.clientName,
+        designation: clientJob.designation || clientJobFormData.designation,
+        
+        // Include existing values for other required fields
+        location: clientJob.location || '',
+        experience: clientJob.experience || '',
+        salary: clientJob.salary || '',
+        
+        // The fields we want to update
+        profile_submission: 0,
+        profile_submission_date: null
+      };
+      
+      // Call the update API with all required fields
+      await clientJobs.update(clientJobId, updateData);
+      
+      // Update local state to reflect the changes
+      handleProfileSubmissionChange('No');
+      setShowProfileSubmissionDeleteModal(false);
+      
+      // Show success message
+      toast.success('Profile submission cleared successfully');
+      // Reset explicit flag after successful clear
+      setProfileSubmissionTouched(false);
+      
+      // Refresh the candidate data to get the latest updates
+      if (candidateId) {
+        const updatedCandidate = await candidates.getById(candidateId);
+        setDetailedCandidate(updatedCandidate);
+        // Also refresh client jobs to prevent stale data from overriding local state
+        const updatedClientJobs = await clientJobs.getByCandidate(candidateId);
+        setRelatedData(prev => ({
+          ...prev,
+          clients: updatedClientJobs
+        }));
+      }
+      
+    } catch (error) {
+      console.error('Error clearing profile submission:', error);
+      toast.error(error.response?.data?.message || error.message || 'Failed to clear profile submission');
+      
+      // Log detailed error information for debugging
+      if (error.response?.data) {
+        console.error('Error details:', error.response.data);
+      }
+    }
   };
 
   // Handle Attend change
@@ -1012,6 +1090,70 @@ const CandidateDetailsModal = ({
         ? (prev.attendDate || new Date().toISOString().split('T')[0])
         : ''
     }));
+  };
+
+  const handleConfirmDeleteAttend = async () => {
+    try {
+      const candidateId = selectedCandidate?.candidateId || selectedCandidate?.id;
+      let clientJobId = selectedCandidate?.clientJobId;
+      let clientJob = null;
+
+      if (clientJobId && relatedData.clients) {
+        clientJob = relatedData.clients.find(job => job.id === clientJobId);
+      }
+
+      if (!clientJob) {
+        clientJob = relatedData.clients?.find(job =>
+          job.client_name === clientJobFormData.clientName &&
+          job.designation === clientJobFormData.designation
+        );
+        if (clientJob) {
+          clientJobId = clientJob.id;
+        } else {
+          throw new Error('Could not find client job. Please try again.');
+        }
+      }
+
+      const updateData = {
+        candidate: clientJob.candidate || candidateId,
+        client_name: clientJobFormData.clientName || clientJob.client_name,
+        designation: clientJobFormData.designation || clientJob.designation,
+        // Keep existing required fields to satisfy backend validation
+        location: clientJob.location || '',
+        experience: clientJob.experience || '',
+        ctc: clientJob.ctc || '',
+        notice_period: clientJob.notice_period || '',
+        vendor_status: clientJob.vendor_status || 'pending',
+        // Clear attend fields
+        attend: 0,
+        attend_date: null
+      };
+      Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+
+      await clientJobs.update(clientJobId, updateData);
+
+      setClientJobFormData(prev => ({
+        ...prev,
+        attend: 'No',
+        attendDate: ''
+      }));
+
+      toast.success('Attend status deleted successfully');
+      setShowAttendDeleteModal(false);
+
+      if (candidateId) {
+        const updatedCandidate = await candidates.getById(candidateId);
+        setDetailedCandidate(updatedCandidate);
+        const updatedClientJobs = await clientJobs.getByCandidate(candidateId);
+        setRelatedData(prev => ({
+          ...prev,
+          clients: updatedClientJobs
+        }));
+      }
+    } catch (error) {
+      console.error('Error deleting attend status:', error);
+      toast.error(error.response?.data?.message || error.message || 'Failed to delete attend status');
+    }
   };
 
   // Convert database profile submission values (1/0) to display values (Yes/No)
@@ -2077,7 +2219,16 @@ const CandidateDetailsModal = ({
 
         // Directly add feedback with CNA status like FormStep1
         // Explicitly clear EJD and IFD for "Call Not Answered" remark
-        await clientJobsAPI.addFeedback(clientJobId, {
+        const isAccountHolder = canEditClientJob();
+        const ensureDateFormat = (dateStr) => {
+          if (!dateStr) return null;
+          if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            return dateStr;
+          }
+          return new Date(dateStr + 'T00:00:00').toISOString().split('T')[0];
+        };
+
+        const feedbackPayload = {
           feedback_text: 'Call Not Answered',
           remarks: 'Call Not Answered',
           nfd_date: nfdDate,
@@ -2085,9 +2236,16 @@ const CandidateDetailsModal = ({
           ifd_date: null,  // Clear Interview Fixed Date
           call_status: 'call not answered',
           entry_by: detailedCandidate?.executive_name || selectedCandidate?.backendData?.executive_name || 'Unknown'
-        });
+        };
+        if (isAccountHolder && profileSubmissionTouched) {
+          feedbackPayload.profile_submission = getProfileSubmissionDbValue(clientJobFormData.profileSubmission);
+          feedbackPayload.profile_submission_date = ensureDateFormat(clientJobFormData.profileSubmissionDate);
+        }
+        await clientJobsAPI.addFeedback(clientJobId, feedbackPayload);
 
         toast.success(`Call Not Answered feedback added. Next follow-up: ${nfdDate}`, { id: 'cna-update' });
+        // Reset explicit flag after CNA save
+        setProfileSubmissionTouched(false);
 
         // Refresh the candidate data
         const updatedCandidate = await candidates.getById(candidateId);
@@ -2207,20 +2365,23 @@ const CandidateDetailsModal = ({
           return new Date(dateStr + 'T00:00:00').toISOString().split('T')[0];
         };
 
-        await clientJobsAPI.addFeedback(clientJobId, {
+        const feedbackPayload = {
           feedback_text: clientJobFormData.feedback,
           remarks: clientJobFormData.remarks,
           // Only include date fields if user is account holder, otherwise send null to clear old dates
           nfd_date: isAccountHolder ? ensureDateFormat(clientJobFormData.nfdDate) : null,
           ejd_date: isAccountHolder ? ensureDateFormat(clientJobFormData.ejdDate) : null,
           ifd_date: isAccountHolder ? ensureDateFormat(clientJobFormData.ifdDate) : null,
-          profile_submission: isAccountHolder ? getProfileSubmissionDbValue(clientJobFormData.profileSubmission) : null,
-          profile_submission_date: isAccountHolder ? ensureDateFormat(clientJobFormData.profileSubmissionDate) : null,
           attend: isAccountHolder ? (clientJobFormData.attend === 'Yes' ? 1 : 0) : null,
           attend_date: isAccountHolder ? ensureDateFormat(clientJobFormData.attendDate) : null,
           call_status: clientJobCallStatus,
           entry_by: detailedCandidate?.executive_name || selectedCandidate?.backendData?.executive_name || 'Unknown'
-        });
+        };
+        if (isAccountHolder && profileSubmissionTouched) {
+          feedbackPayload.profile_submission = getProfileSubmissionDbValue(clientJobFormData.profileSubmission);
+          feedbackPayload.profile_submission_date = ensureDateFormat(clientJobFormData.profileSubmissionDate);
+        }
+        await clientJobsAPI.addFeedback(clientJobId, feedbackPayload);
 
         // Create status history entry for the call answered action
         try {
@@ -2234,7 +2395,7 @@ const CandidateDetailsModal = ({
             client_job_id: clientJobId,
             vendor_id: null,
             client_name: clientJobFormData.clientName || clientJob.client_name,
-            remarks: clientJobFormData.remarks || 'interested',
+            remarks: clientJobFormData.remarks || callStatusText,
             change_date: today,
             created_by: executiveCode,
             extra_notes: `${callStatusText}. Feedback: ${clientJobFormData.feedback || 'No feedback provided'}`,
@@ -2261,6 +2422,8 @@ const CandidateDetailsModal = ({
 
         // Mark form as submitted to switch to read mode
         setClientJobFormSubmitted(true);
+        // Reset explicit profile submission flag after successful save
+        setProfileSubmissionTouched(false);
 
         // Refresh the candidate data
         const updatedCandidate = await candidates.getById(candidateId);
@@ -2522,14 +2685,16 @@ const CandidateDetailsModal = ({
         client_name: formData.clientName || '',
         designation: formData.designation || '',
         current_ctc: formData.currentCtc ? parseFloat(formData.currentCtc) : null,
-        expected_ctc: formData.expectedCtc ? parseFloat(formData.expectedCtc) : null,
-        profile_submission: formData.profileSubmission === "Yes" || formData.profileSubmission === true,
-        profile_submission_date: formData.profileSubmissionDate ?
+        expected_ctc: formData.expectedCtc ? parseFloat(formData.expectedCtc) : null
+      };
+      if (profileSubmissionTouched) {
+        clientJobData.profile_submission = formData.profileSubmission === "Yes" || formData.profileSubmission === true;
+        clientJobData.profile_submission_date = formData.profileSubmissionDate ?
           (formData.profileSubmissionDate.match(/^\d{4}-\d{2}-\d{2}$/) ?
             formData.profileSubmissionDate :
             new Date(formData.profileSubmissionDate + 'T00:00:00').toISOString().split('T')[0]
-          ) : null
-      };
+          ) : null;
+      }
 
 
 
@@ -5901,7 +6066,12 @@ const CandidateDetailsModal = ({
                       {clientJobFormData.profileSubmission === "Yes" && (
                         <button
                           type="button"
-                          onClick={() => clientJobCallStatus === 'call answered' && setShowProfileSubmissionDeleteModal(true)}
+                          onClick={() => {
+                            if (clientJobCallStatus === 'call answered') {
+                              setProfileSubmissionTouched(true);
+                              setShowProfileSubmissionDeleteModal(true);
+                            }
+                          }}
                           className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={clientJobCallStatus !== 'call answered'}
                           title="Clear profile submission"
@@ -6016,7 +6186,7 @@ const CandidateDetailsModal = ({
               )}
 
               {/* Third Row - Attend and Attend Date */}
-              {canEditClientJob() && (
+              {canEditClientJob() && clientJobFormData.profileSubmission === "Yes" && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
@@ -6304,7 +6474,7 @@ const CandidateDetailsModal = ({
             </p>
             <div className="flex justify-end gap-2 sm:gap-3">
               <button
-                onClick={() => setShowProfileSubmissionDeleteModal(false)}
+                onClick={() => { setShowProfileSubmissionDeleteModal(false); setProfileSubmissionTouched(false); } }
                 className="px-3 sm:px-4 py-1.5 sm:py-2 rounded bg-gray-300 hover:bg-gray-400 text-sm sm:text-base"
               >
                 Cancel
@@ -6340,11 +6510,7 @@ const CandidateDetailsModal = ({
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  handleAttendChange('No');
-                  setShowAttendDeleteModal(false);
-                  toast.success('Attend status deleted successfully');
-                }}
+                onClick={handleConfirmDeleteAttend}
                 className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded bg-red-600 text-white hover:bg-red-700 text-sm sm:text-base"
               >
                 <Trash className="w-4 h-4" />
